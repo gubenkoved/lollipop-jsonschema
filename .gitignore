@@ -1,0 +1,7 @@
+*.pyc
+*.pyo
+/build/
+/dist/
+/.eggs/
+/.cache/
+/lollipop_jsonschema.egg-info/
