@@ -88,6 +88,27 @@ def json_schema(schema):
         ]
         if required:
             js['required'] = required
+        if schema.allow_extra_fields is not None:
+            js['additionalProperties'] = schema.allow_extra_fields
+    elif isinstance(schema, lt.Dict):
+        js['type'] = 'object'
+        fixed_properties = schema.value_types \
+            if hasattr(schema.value_types, 'keys') else {}
+        properties = OrderedDict(
+            (k, json_schema(v))
+            for k, v in iteritems(fixed_properties)
+        )
+        if properties:
+            js['properties'] = properties
+        required = [
+            k
+            for k, v in iteritems(fixed_properties)
+            if not isinstance(v, lt.Optional)
+        ]
+        if required:
+            js['required'] = required
+        if hasattr(schema.value_types, 'default'):
+            js['additionalProperties'] = json_schema(schema.value_types.default)
     elif hasattr(schema, 'inner_type'):
         return json_schema(schema.inner_type)
 

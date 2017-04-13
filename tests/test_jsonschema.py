@@ -111,6 +111,53 @@ class TestJsonSchema:
                                         'bar': lt.Optional(lt.Integer())}))
         assert 'required' not in result
 
+    def test_object_allow_extra_fields(self):
+        result = json_schema(lt.Object({
+            'foo': lt.String(), 'bar': lt.Integer(),
+        }))
+
+        assert 'additionalProperties' not in result
+
+        result = json_schema(lt.Object({
+            'foo': lt.String(), 'bar': lt.Integer(),
+        }, allow_extra_fields=True))
+
+        assert result['additionalProperties'] == True
+
+        result = json_schema(lt.Object({
+            'foo': lt.String(), 'bar': lt.Integer(),
+        }, allow_extra_fields=False))
+
+        assert result['additionalProperties'] == False
+
+    def test_fixed_fields_dict_schema(self):
+        result = json_schema(lt.Dict({'foo': lt.String(), 'bar': lt.Integer()}))
+
+        assert len(result) == 3
+        assert result['type'] == 'object'
+        assert result['properties'] == {
+            'foo': {'type': 'string'},
+            'bar': {'type': 'integer'},
+        }
+        assert sorted(result['required']) == sorted(['foo', 'bar'])
+
+    def test_variadic_fields_dict_schema(self):
+        result = json_schema(lt.Dict(lt.Integer()))
+
+        assert len(result) == 2
+        assert result['type'] == 'object'
+        assert result['additionalProperties'] == {'type': 'integer'}
+
+    def test_fixed_fields_dict_optional_fields(self):
+        result = json_schema(lt.Dict({'foo': lt.String(),
+                                      'bar': lt.Optional(lt.Integer())}))
+        assert 'bar' not in result['required']
+
+    def test_fixed_fields_dict_all_optional_fields(self):
+        result = json_schema(lt.Dict({'foo': lt.Optional(lt.String()),
+                                      'bar': lt.Optional(lt.Integer())}))
+        assert 'required' not in result
+
     def test_schema_title(self):
         assert json_schema(lt.String(name='My string'))['title'] == 'My string'
         assert json_schema(lt.Integer(name='My integer'))['title'] == 'My integer'
