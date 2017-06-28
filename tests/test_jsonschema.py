@@ -217,3 +217,7 @@ class TestJsonSchema:
                     lv.AnyOf(['baz', 'bam']),
                 ])
             )
+
+    def test_constant(self):
+        assert json_schema(lt.Constant('foo')) == {'const': 'foo'}
+        assert json_schema(lt.Constant(123)) == {'const': 123}
