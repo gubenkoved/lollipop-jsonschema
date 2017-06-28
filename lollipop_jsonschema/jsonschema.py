@@ -25,6 +25,28 @@ def json_schema(schema):
     if schema.description:
         js['description'] = schema.description
 
+    any_of_validators = find_validators(schema, lv.AnyOf)
+    if any_of_validators:
+        choices = set(any_of_validators[0].choices)
+        for validator in any_of_validators[1:]:
+            choices = choices.intersection(set(validator.choices))
+
+        if not choices:
+            raise ValueError('AnyOf constraints choices does not allow any values')
+
+        js['enum'] = list(schema.dump(choice) for choice in choices)
+
+        return js
+
+    none_of_validators = find_validators(schema, lv.NoneOf)
+    if none_of_validators:
+        choices = set(none_of_validators[0].values)
+        for validator in none_of_validators[1:]:
+            choices = choices.union(set(validator.values))
+
+        if choices:
+            js['not'] = {'enum': list(schema.dump(choice) for choice in choices)}
+
     if isinstance(schema, lt.Any):
         pass
     elif isinstance(schema, lt.String):
@@ -109,7 +131,14 @@ def json_schema(schema):
             js['required'] = required
         if hasattr(schema.value_types, 'default'):
             js['additionalProperties'] = json_schema(schema.value_types.default)
+    elif isinstance(schema, lt.Constant):
+        js['const'] = schema.value
+    elif isinstance(schema, lt.Optional):
+        js.update(json_schema(schema.inner_type))
+        default = schema.load_default()
+        if default:
+            js['default'] = schema.inner_type.dump(default)
     elif hasattr(schema, 'inner_type'):
-        return json_schema(schema.inner_type)
+        js.update(json_schema(schema.inner_type))
 
     return js
