@@ -221,3 +221,20 @@ class TestJsonSchema:
     def test_constant(self):
         assert json_schema(lt.Constant('foo')) == {'const': 'foo'}
         assert json_schema(lt.Constant(123)) == {'const': 123}
+
+    def test_optional_schema_is_its_inner_type_schema(self):
+        assert json_schema(lt.Optional(lt.String())) == json_schema(lt.String())
+        assert json_schema(lt.Optional(lt.Integer())) == json_schema(lt.Integer())
+
+    def test_optional_load_default_is_used_as_default(self):
+        assert json_schema(lt.Optional(lt.String(), load_default='foo')) \
+            == {'type': 'string', 'default': 'foo'}
+
+    def test_optional_load_default_value_is_serialized(self):
+        MyType = namedtuple('MyType', ['foo', 'bar'])
+
+        result = json_schema(lt.Optional(lt.Object({
+            'foo': lt.String(), 'bar': lt.Integer(),
+        }), load_default=MyType('hello', 123)))
+
+        assert result['default'] == {'foo': 'hello', 'bar': 123}

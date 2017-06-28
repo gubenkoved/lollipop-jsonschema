@@ -124,7 +124,12 @@ def json_schema(schema):
             js['additionalProperties'] = json_schema(schema.value_types.default)
     elif isinstance(schema, lt.Constant):
         js['const'] = schema.value
+    elif isinstance(schema, lt.Optional):
+        js.update(json_schema(schema.inner_type))
+        default = schema.load_default()
+        if default:
+            js['default'] = schema.inner_type.dump(default)
     elif hasattr(schema, 'inner_type'):
-        return json_schema(schema.inner_type)
+        js.update(json_schema(schema.inner_type))
 
     return js
