@@ -25,6 +25,19 @@ def json_schema(schema):
     if schema.description:
         js['description'] = schema.description
 
+    any_of_validators = find_validators(schema, lv.AnyOf)
+    if any_of_validators:
+        choices = set(any_of_validators[0].choices)
+        for validator in any_of_validators[1:]:
+            choices = choices.intersection(set(validator.choices))
+
+        if not choices:
+            raise ValueError('AnyOf constraints choices does not allow any values')
+
+        js['enum'] = list(schema.dump(choice) for choice in choices)
+
+        return js
+
     if isinstance(schema, lt.Any):
         pass
     elif isinstance(schema, lt.String):

@@ -1,6 +1,8 @@
 import lollipop.types as lt
 import lollipop.validators as lv
 from lollipop_jsonschema import json_schema
+import pytest
+from collections import namedtuple
 
 
 class TestJsonSchema:
@@ -173,3 +175,45 @@ class TestJsonSchema:
             == 'My description'
         assert json_schema(lt.Boolean(description='My description'))['description'] \
             == 'My description'
+
+    def test_type_with_any_of_validator_is_dumped_as_enum(self):
+        jschema = json_schema(lt.String(validate=lv.AnyOf(['foo', 'bar', 'baz'])))
+        assert len(jschema) == 1
+        assert sorted(jschema['enum']) == sorted(['foo', 'bar', 'baz'])
+
+        jschema = json_schema(lt.Integer(validate=lv.AnyOf([1, 2, 3])))
+        assert len(jschema) == 1
+        assert sorted(jschema['enum']) == sorted([1, 2, 3])
+
+    def test_type_with_any_of_validator_values_are_serialized(self):
+        MyType = namedtuple('MyType', ['foo', 'bar'])
+
+        MY_TYPE = lt.Object(
+            {'foo': lt.String(), 'bar': lt.Integer()},
+            validate=lv.AnyOf([MyType('hello', 1), MyType('goodbye', 2)]),
+        )
+        jschema = json_schema(MY_TYPE)
+
+        assert sorted(jschema['enum'], key=lambda d: sorted(d.items())) == \
+            [{'foo': 'hello', 'bar': 1}, {'foo': 'goodbye', 'bar': 2}]
+
+    def test_type_with_multiple_any_of_validators(self):
+        jschema = json_schema(
+            lt.String(validate=[
+                lv.AnyOf(['foo', 'bar', 'baz']),
+                lv.AnyOf(['bar', 'baz', 'bam']),
+            ])
+        )
+
+        assert len(jschema) == 1
+        assert sorted(jschema['enum']) == sorted(['bar', 'baz'])
+
+    def test_type_with_nonintersecting_any_of_validators_raises_ValueError(self):
+        with pytest.raises(ValueError):
+            json_schema(
+                lt.String(validate=[
+                    lv.AnyOf(['foo', 'bar']),
+                    lv.AnyOf(['bar', 'baz']),
+                    lv.AnyOf(['baz', 'bam']),
+                ])
+            )
