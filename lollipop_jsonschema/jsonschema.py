@@ -38,6 +38,15 @@ def json_schema(schema):
 
         return js
 
+    none_of_validators = find_validators(schema, lv.NoneOf)
+    if none_of_validators:
+        choices = set(none_of_validators[0].values)
+        for validator in none_of_validators[1:]:
+            choices = choices.union(set(validator.values))
+
+        if choices:
+            js['not'] = {'enum': list(schema.dump(choice) for choice in choices)}
+
     if isinstance(schema, lt.Any):
         pass
     elif isinstance(schema, lt.String):
