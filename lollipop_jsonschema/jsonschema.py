@@ -110,8 +110,14 @@ def json_schema(schema):
         ]
         if required:
             js['required'] = required
-        if schema.allow_extra_fields is not None:
+        if schema.allow_extra_fields in [True, False]:
             js['additionalProperties'] = schema.allow_extra_fields
+        elif isinstance(schema.allow_extra_fields, lt.Field):
+            field_type = schema.allow_extra_fields.field_type
+            if isinstance(field_type, lt.Any):
+                js['additionalProperties'] = True
+            else:
+                js['additionalProperties'] = json_schema(field_type)
     elif isinstance(schema, lt.Dict):
         js['type'] = 'object'
         fixed_properties = schema.value_types \
