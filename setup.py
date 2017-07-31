@@ -11,7 +11,7 @@ def read(fname):
 
 setup(
     name='lollipop-jsonschema',
-    version='0.3',
+    version='0.4',
     description=('Library to convert Lollipop schema to JSON schema'),
     long_description=read('README.rst'),
     author='Maxim Kulkin',
@@ -19,12 +19,12 @@ setup(
     url='https://github.com/maximkulkin/lollipop-jsonschema',
     packages=['lollipop_jsonschema'],
     include_package_data=True,
-    install_requires=['lollipop>=1.1.2'],
+    install_requires=['lollipop>=1.1.5'],
     license='MIT',
     zip_safe=False,
     keywords=('lollipop', 'json', 'schema'),
     classifiers=[
-        'Development Status :: 3 - Alpha',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'License :: OSI Approved :: MIT License',
         'Programming Language :: Python :: 2',
