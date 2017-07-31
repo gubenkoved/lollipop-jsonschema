@@ -113,24 +113,47 @@ class TestJsonSchema:
                                         'bar': lt.Optional(lt.Integer())}))
         assert 'required' not in result
 
-    def test_object_allow_extra_fields(self):
+    def test_object_no_allow_extra_fields(self):
         result = json_schema(lt.Object({
             'foo': lt.String(), 'bar': lt.Integer(),
         }))
 
         assert 'additionalProperties' not in result
 
+    def test_object_allow_extra_fields_true(self):
         result = json_schema(lt.Object({
             'foo': lt.String(), 'bar': lt.Integer(),
         }, allow_extra_fields=True))
 
         assert result['additionalProperties'] == True
 
+    def test_object_allow_extra_fields_any(self):
+        result = json_schema(lt.Object({
+            'foo': lt.String(), 'bar': lt.Integer(),
+        }, allow_extra_fields=lt.Any()))
+
+        assert result['additionalProperties'] == True
+
+    def test_object_allow_extra_fields_false(self):
         result = json_schema(lt.Object({
             'foo': lt.String(), 'bar': lt.Integer(),
         }, allow_extra_fields=False))
 
         assert result['additionalProperties'] == False
+
+    def test_object_allow_extra_fields_type(self):
+        result = json_schema(lt.Object({
+            'foo': lt.String(), 'bar': lt.Integer(),
+        }, allow_extra_fields=lt.Object({
+            'bar': lt.String(), 'foo': lt.Integer(),
+        })))
+
+        additional = result['additionalProperties']
+        assert additional['type'] == 'object'
+        assert additional['properties'] == {
+            'foo': {'type': 'integer'},
+            'bar': {'type': 'string'},
+        }
 
     def test_fixed_fields_dict_schema(self):
         result = json_schema(lt.Dict({'foo': lt.String(), 'bar': lt.Integer()}))
