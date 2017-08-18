@@ -1,8 +1,15 @@
 import lollipop.types as lt
 import lollipop.validators as lv
+from lollipop.utils import is_mapping
 from lollipop_jsonschema import json_schema
 import pytest
 from collections import namedtuple
+
+
+def sorted_dicts(items):
+    def normalize(v):
+        return [(k, normalize(v)) for k, v in v.items()] if is_mapping(v) else v
+    return sorted(items, key=normalize)
 
 
 class TestJsonSchema:
@@ -284,3 +291,28 @@ class TestJsonSchema:
         }), load_default=MyType('hello', 123)))
 
         assert result['default'] == {'foo': 'hello', 'bar': 123}
+
+    def test_one_of_schema_with_sequence(self):
+        t1 = lt.String()
+        t2 = lt.Integer()
+        t3 = lt.Boolean()
+        result = json_schema(lt.OneOf([t1, t2, t3]))
+
+        assert sorted(['anyOf']) == sorted(result.keys())
+        assert sorted_dicts([json_schema(t) for t in [t1, t2, t3]]) == \
+            sorted_dicts(result['anyOf'])
+
+    def test_one_of_schema_with_mapping(self):
+        Foo = namedtuple('Foo', ['foo'])
+        Bar = namedtuple('Bar', ['bar'])
+
+        FOO_SCHEMA = lt.Object({'type': 'Foo', 'foo': lt.String()})
+        BAR_SCHEMA = lt.Object({'type': 'Bar', 'bar': lt.Integer()})
+
+        result = json_schema(lt.OneOf({'Foo': FOO_SCHEMA, 'Bar': BAR_SCHEMA},
+                                      load_hint=lt.dict_value_hint('type'),
+                                      dump_hint=lt.type_name_hint))
+
+        assert sorted(['anyOf']) == sorted(result.keys())
+        assert sorted_dicts([json_schema(FOO_SCHEMA), json_schema(BAR_SCHEMA)]) == \
+            sorted_dicts(result['anyOf'])
