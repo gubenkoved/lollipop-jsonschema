@@ -5,7 +5,7 @@ __all__ = [
 
 import lollipop.types as lt
 import lollipop.validators as lv
-from lollipop.utils import identity
+from lollipop.utils import identity, is_mapping
 
 from collections import OrderedDict
 from .compat import iteritems
@@ -137,6 +137,9 @@ def json_schema(schema):
             js['required'] = required
         if hasattr(schema.value_types, 'default'):
             js['additionalProperties'] = json_schema(schema.value_types.default)
+    elif isinstance(schema, lt.OneOf):
+        types = schema.types.values() if is_mapping(schema.types) else schema.types
+        js['anyOf'] = [json_schema(variant) for variant in types]
     elif isinstance(schema, lt.Constant):
         js['const'] = schema.value
     elif isinstance(schema, lt.Optional):
