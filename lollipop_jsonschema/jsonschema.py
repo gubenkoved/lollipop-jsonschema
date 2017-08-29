@@ -2,12 +2,14 @@ __all__ = [
     'json_schema',
 ]
 
+import uuid
 
+import lollipop.type_registry as lr
 import lollipop.types as lt
 import lollipop.validators as lv
 from lollipop.utils import identity, is_mapping
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from .compat import iteritems
 
 
@@ -17,8 +19,33 @@ def find_validators(schema, validator_type):
             if isinstance(validator, validator_type)]
 
 
-def json_schema(schema):
-    """Convert Lollipop schema to JSON schema"""
+class References(OrderedDict):
+    def definitions(self):
+        return {
+            ref.name: ref.schema for _, ref in iteritems(self)
+        }
+
+Reference = namedtuple('Reference', ['name', 'value', 'schema'])
+
+
+def json_schema(schema, refs=None):
+    """Convert Lollipop schema to JSON schema."""
+    is_top_level_schema = refs is None
+
+    if is_top_level_schema:
+        refs = References()
+    elif not isinstance(refs, References):
+        raise ValueError(
+            "The refs argument must be an instance of References."
+        )
+
+    js = _json_schema(schema, refs=refs)
+    if is_top_level_schema and refs:
+        js['definitions'] = refs.definitions()
+    return js
+
+
+def _json_schema(schema, refs=None):
     js = OrderedDict()
     if schema.name:
         js['title'] = schema.name
@@ -80,7 +107,7 @@ def json_schema(schema):
         js['type'] = 'boolean'
     elif isinstance(schema, lt.List):
         js['type'] = 'array'
-        js['items'] = json_schema(schema.item_type)
+        js['items'] = _json_schema(schema.item_type, refs=refs)
 
         length_validators = find_validators(schema, lv.Length)
         if length_validators:
@@ -96,11 +123,14 @@ def json_schema(schema):
             js['uniqueItems'] = True
     elif isinstance(schema, lt.Tuple):
         js['type'] = 'array'
-        js['items'] = [json_schema(item_type) for item_type in schema.item_types]
+        js['items'] = [
+            _json_schema(item_type, refs=refs)
+            for item_type in schema.item_types
+        ]
     elif isinstance(schema, lt.Object):
         js['type'] = 'object'
         js['properties'] = OrderedDict(
-            (k, json_schema(v.field_type))
+            (k, _json_schema(v.field_type, refs=refs))
             for k, v in iteritems(schema.fields)
         )
         required = [
@@ -117,13 +147,13 @@ def json_schema(schema):
             if isinstance(field_type, lt.Any):
                 js['additionalProperties'] = True
             else:
-                js['additionalProperties'] = json_schema(field_type)
+                js['additionalProperties'] = _json_schema(field_type)
     elif isinstance(schema, lt.Dict):
         js['type'] = 'object'
         fixed_properties = schema.value_types \
             if hasattr(schema.value_types, 'keys') else {}
         properties = OrderedDict(
-            (k, json_schema(v))
+            (k, _json_schema(v, refs=refs))
             for k, v in iteritems(fixed_properties)
         )
         if properties:
@@ -136,18 +166,38 @@ def json_schema(schema):
         if required:
             js['required'] = required
         if hasattr(schema.value_types, 'default'):
-            js['additionalProperties'] = json_schema(schema.value_types.default)
+            js['additionalProperties'] = _json_schema(
+                schema.value_types.default, refs=refs)
     elif isinstance(schema, lt.OneOf):
         types = schema.types.values() if is_mapping(schema.types) else schema.types
-        js['anyOf'] = [json_schema(variant) for variant in types]
+        js['anyOf'] = [_json_schema(variant, refs=refs) for variant in types]
     elif isinstance(schema, lt.Constant):
         js['const'] = schema.value
     elif isinstance(schema, lt.Optional):
-        js.update(json_schema(schema.inner_type))
+        js.update(_json_schema(schema.inner_type, refs=refs))
         default = schema.load_default()
         if default:
             js['default'] = schema.inner_type.dump(default)
+    elif isinstance(schema, lr.TypeRef):
+        inner_type = schema.inner_type
+        if refs is None:
+            raise ValueError(
+                "Could not process an instance of TypeRef while refs is None."
+            )
+        if inner_type in refs:
+            ref = refs[inner_type]
+        else:
+            ref_name = uuid.uuid4().urn
+            refs[inner_type] = ref = Reference(
+                name=ref_name,
+                value='#/definitions/' + ref_name,
+                schema=None,
+            )
+            refs[inner_type] = ref = ref._replace(
+                schema=_json_schema(inner_type, refs=refs),
+            )
+        return {"$ref": ref.value}
     elif hasattr(schema, 'inner_type'):
-        js.update(json_schema(schema.inner_type))
+        js.update(_json_schema(schema.inner_type, refs=refs))
 
     return js

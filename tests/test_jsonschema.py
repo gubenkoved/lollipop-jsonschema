@@ -1,7 +1,10 @@
+import lollipop.type_registry as lr
 import lollipop.types as lt
 import lollipop.validators as lv
 from lollipop.utils import is_mapping
+from lollipop_jsonschema import References
 from lollipop_jsonschema import json_schema
+from lollipop_jsonschema.compat import iteritems
 import pytest
 from collections import namedtuple
 
@@ -316,3 +319,78 @@ class TestJsonSchema:
         assert sorted(['anyOf']) == sorted(result.keys())
         assert sorted_dicts([json_schema(FOO_SCHEMA), json_schema(BAR_SCHEMA)]) == \
             sorted_dicts(result['anyOf'])
+
+    def test_type_ref_cycled_array(self):
+        def assert_array(result):
+            assert 'array' == result['type']
+            items = result['items']['anyOf']
+            assert len(items) == 2
+            item0, item1 = items
+            assert 'string' == item0['type']
+            assert '$ref' in item1
+
+        TYPES = lr.TypeRegistry()
+        MyType = TYPES.add(
+            'MyType',
+            lt.List(lt.OneOf([lt.String(), TYPES['MyType']])),
+        )
+
+        refs = References()
+        result = json_schema(MyType, refs=refs)
+
+        assert_array(result)
+
+        definitions = refs.definitions()
+        assert len(definitions) == 1
+        name, schema = list(definitions.items())[0]
+
+        assert '#/definitions/' + name == result['items']['anyOf'][1]['$ref']
+        assert_array(schema)
+
+    def test_type_ref(self):
+        TYPES = lr.TypeRegistry()
+
+        AType = TYPES.add('AType', lt.Object({
+            'a': lt.String(),
+            'c': TYPES['BType'],
+        }))
+        BType = TYPES.add('BType', lt.Object({
+            'b': lt.String(),
+        }))
+
+        refs = References()
+        result = json_schema(TYPES['AType'], refs=refs)
+        definitions = refs.definitions()
+
+        assert '$ref' in result
+        assert len(definitions) == 2
+        defs = sorted(
+            sorted(ref['properties'].keys())
+            for ref in definitions.values()
+        )
+        assert [['a', 'c'], ['b']] == defs
+
+    def test_cross_ref_top_level_schema(self):
+        TYPES = lr.TypeRegistry()
+
+        AType = TYPES.add('AType', lt.Object({
+            'a': lt.String(),
+            'c': TYPES['BType'],
+        }))
+        BType = TYPES.add('BType', lt.Object({
+            'b': lt.String(),
+        }))
+
+        result = json_schema(TYPES['AType'])
+        assert '$ref' in result
+        assert 'definitions' in result
+        assert len(result['definitions']) == 2
+        defs = sorted(
+            sorted(ref['properties'].keys())
+            for ref in result['definitions'].values()
+        )
+        assert [['a', 'c'], ['b']] == defs
+
+    def test_no_type_ref(self):
+        result = json_schema(lt.String())
+        assert 'definitions' not in result
