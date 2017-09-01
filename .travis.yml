@@ -12,6 +12,7 @@ python:
   - "pypy"
 
 before_install:
+  - pip install -U setuptools
   - pip install -U pip
 
 install:
