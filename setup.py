@@ -11,7 +11,7 @@ def read(fname):
 
 setup(
     name='lollipop-jsonschema',
-    version='0.5',
+    version='0.6',
     description=('Library to convert Lollipop schema to JSON schema'),
     long_description=read('README.rst'),
     author='Maxim Kulkin',
