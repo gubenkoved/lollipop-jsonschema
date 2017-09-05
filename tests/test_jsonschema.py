@@ -150,6 +150,13 @@ class TestJsonSchema:
 
         assert result['additionalProperties'] == True
 
+    def test_object_allow_extra_fields_any_with_modifiers(self):
+        result = json_schema(lt.Object({
+            'foo': lt.String(), 'bar': lt.Integer(),
+        }, allow_extra_fields=lt.Transform(lt.Any())))
+
+        assert result['additionalProperties'] == True
+
     def test_object_allow_extra_fields_false(self):
         result = json_schema(lt.Object({
             'foo': lt.String(), 'bar': lt.Integer(),

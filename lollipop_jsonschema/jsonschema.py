@@ -137,6 +137,12 @@ def is_load_schema(schema):
     return not has_modifier(schema, lt.DumpOnly)
 
 
+def is_type(schema, schema_type):
+    while isinstance(schema, (lt.Modifier, lr.TypeRef)):
+        schema = schema.inner_type
+    return isinstance(schema, schema_type)
+
+
 def _json_schema(schema, context, force_render=False):
     if schema in context.definitions and not force_render:
         return {'$ref': '#/definitions/' + context.definitions[schema].name}
@@ -277,7 +283,7 @@ def _json_schema(schema, context, force_render=False):
             field_type = schema.allow_extra_fields.field_type
             field_schema = _json_schema(field_type, context=context)
             if field_schema is not None:
-                if isinstance(field_type, lt.Any):
+                if is_type(field_type, lt.Any):
                     js['additionalProperties'] = True
                 else:
                     js['additionalProperties'] = field_schema
