@@ -117,6 +117,13 @@ class TestJsonSchema:
                                         'bar': lt.Optional(lt.Integer())}))
         assert 'bar' not in result['required']
 
+    def test_object_optional_fields_wrapped_in_other_modifiers(self):
+        result = json_schema(lt.Object({
+            'foo': lt.String(),
+            'bar': lt.DumpOnly(lt.Optional(lt.Integer())),
+        }))
+        assert 'bar' not in result['required']
+
     def test_object_all_optional_fields(self):
         result = json_schema(lt.Object({'foo': lt.Optional(lt.String()),
                                         'bar': lt.Optional(lt.Integer())}))

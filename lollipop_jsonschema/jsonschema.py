@@ -108,6 +108,18 @@ def _count_schema_usages(schema, counts):
         _count_schema_usages(schema.inner_type, counts)
 
 
+def has_modifier(schema, modifier):
+    while isinstance(schema, (lt.Modifier, lr.TypeRef)):
+        if isinstance(schema, modifier):
+            return True
+        schema = schema.inner_type
+    return False
+
+
+def is_optional(schema):
+    return has_modifier(schema, lt.Optional)
+
+
 def _json_schema(schema, definitions, force_render=False):
     if schema in definitions and not force_render:
         return {'$ref': '#/definitions/' + definitions[schema].name}
@@ -215,7 +227,7 @@ def _json_schema(schema, definitions, force_render=False):
         required = [
             k
             for k, v in iteritems(schema.fields)
-            if not isinstance(v.field_type, lt.Optional)
+            if not is_optional(v.field_type)
         ]
         if required:
             js['required'] = required
@@ -238,8 +250,8 @@ def _json_schema(schema, definitions, force_render=False):
             js['properties'] = properties
         required = [
             k
-            for k, v in iteritems(fixed_properties)
-            if not isinstance(v, lt.Optional)
+            for k, v in iteritems(schema.value_types)
+            if not is_optional(v)
         ]
         if required:
             js['required'] = required
