@@ -1,8 +1,7 @@
 import lollipop.type_registry as lr
 import lollipop.types as lt
 import lollipop.validators as lv
-from lollipop.utils import is_mapping
-from lollipop_jsonschema import References
+from lollipop.utils import is_mapping, DictWithDefault
 from lollipop_jsonschema import json_schema
 from lollipop_jsonschema.compat import iteritems
 import pytest
@@ -118,6 +117,13 @@ class TestJsonSchema:
                                         'bar': lt.Optional(lt.Integer())}))
         assert 'bar' not in result['required']
 
+    def test_object_optional_fields_wrapped_in_other_modifiers(self):
+        result = json_schema(lt.Object({
+            'foo': lt.String(),
+            'bar': lt.DumpOnly(lt.Optional(lt.Integer())),
+        }))
+        assert 'bar' not in result['required']
+
     def test_object_all_optional_fields(self):
         result = json_schema(lt.Object({'foo': lt.Optional(lt.String()),
                                         'bar': lt.Optional(lt.Integer())}))
@@ -141,6 +147,13 @@ class TestJsonSchema:
         result = json_schema(lt.Object({
             'foo': lt.String(), 'bar': lt.Integer(),
         }, allow_extra_fields=lt.Any()))
+
+        assert result['additionalProperties'] == True
+
+    def test_object_allow_extra_fields_any_with_modifiers(self):
+        result = json_schema(lt.Object({
+            'foo': lt.String(), 'bar': lt.Integer(),
+        }, allow_extra_fields=lt.Transform(lt.Any())))
 
         assert result['additionalProperties'] == True
 
@@ -278,9 +291,11 @@ class TestJsonSchema:
         assert json_schema(lt.Constant('foo')) == {'const': 'foo'}
         assert json_schema(lt.Constant(123)) == {'const': 123}
 
-    def test_optional_schema_is_its_inner_type_schema(self):
-        assert json_schema(lt.Optional(lt.String())) == json_schema(lt.String())
-        assert json_schema(lt.Optional(lt.Integer())) == json_schema(lt.Integer())
+    def test_optional_schema_is_its_inner_type_schema_with_default_annotation(self):
+        assert json_schema(lt.Optional(lt.String())) == \
+            dict(json_schema(lt.String()), default=None)
+        assert json_schema(lt.Optional(lt.Integer())) == \
+            dict(json_schema(lt.Integer()), default=None)
 
     def test_optional_load_default_is_used_as_default(self):
         assert json_schema(lt.Optional(lt.String(), load_default='foo')) \
@@ -294,6 +309,10 @@ class TestJsonSchema:
         }), load_default=MyType('hello', 123)))
 
         assert result['default'] == {'foo': 'hello', 'bar': 123}
+
+    def test_optional_load_default_is_skipped_if_MISSING(self):
+        assert json_schema(lt.Optional(lt.String(), load_default=lt.MISSING)) \
+            == {'type': 'string'}
 
     def test_one_of_schema_with_sequence(self):
         t1 = lt.String()
@@ -320,77 +339,339 @@ class TestJsonSchema:
         assert sorted_dicts([json_schema(FOO_SCHEMA), json_schema(BAR_SCHEMA)]) == \
             sorted_dicts(result['anyOf'])
 
-    def test_type_ref_cycled_array(self):
-        def assert_array(result):
-            assert 'array' == result['type']
-            items = result['items']['anyOf']
-            assert len(items) == 2
-            item0, item1 = items
-            assert 'string' == item0['type']
-            assert '$ref' in item1
+    def test_no_definitions_if_no_duplicate_types(self):
+        result = json_schema(lt.Object({'foo': lt.String(), 'bar': lt.String()}))
 
-        TYPES = lr.TypeRegistry()
-        MyType = TYPES.add(
-            'MyType',
-            lt.List(lt.OneOf([lt.String(), TYPES['MyType']])),
-        )
-
-        refs = References()
-        result = json_schema(MyType, refs=refs)
-
-        assert_array(result)
-
-        definitions = refs.definitions()
-        assert len(definitions) == 1
-        name, schema = list(definitions.items())[0]
-
-        assert '#/definitions/' + name == result['items']['anyOf'][1]['$ref']
-        assert_array(schema)
-
-    def test_type_ref(self):
-        TYPES = lr.TypeRegistry()
-
-        AType = TYPES.add('AType', lt.Object({
-            'a': lt.String(),
-            'c': TYPES['BType'],
-        }))
-        BType = TYPES.add('BType', lt.Object({
-            'b': lt.String(),
-        }))
-
-        refs = References()
-        result = json_schema(TYPES['AType'], refs=refs)
-        definitions = refs.definitions()
-
-        assert '$ref' in result
-        assert len(definitions) == 2
-        defs = sorted(
-            sorted(ref['properties'].keys())
-            for ref in definitions.values()
-        )
-        assert [['a', 'c'], ['b']] == defs
-
-    def test_cross_ref_top_level_schema(self):
-        TYPES = lr.TypeRegistry()
-
-        AType = TYPES.add('AType', lt.Object({
-            'a': lt.String(),
-            'c': TYPES['BType'],
-        }))
-        BType = TYPES.add('BType', lt.Object({
-            'b': lt.String(),
-        }))
-
-        result = json_schema(TYPES['AType'])
-        assert '$ref' in result
-        assert 'definitions' in result
-        assert len(result['definitions']) == 2
-        defs = sorted(
-            sorted(ref['properties'].keys())
-            for ref in result['definitions'].values()
-        )
-        assert [['a', 'c'], ['b']] == defs
-
-    def test_no_type_ref(self):
-        result = json_schema(lt.String())
         assert 'definitions' not in result
+
+    def test_duplicate_types_in_objects_are_extracted_to_definitions(self):
+        type1 = lt.String(name='MyString')
+        result = json_schema(lt.Object({'foo': type1, 'bar': type1}))
+
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
+
+    def test_duplicate_types_in_objects_extra_fields_are_extracted_to_definitions(self):
+        type1 = lt.String(name='MyString')
+        result = json_schema(lt.Object({'foo': type1}, allow_extra_fields=type1))
+
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['additionalProperties'] == {'$ref': '#/definitions/MyString'}
+
+    def test_duplicate_types_in_lists_are_extracted_to_definitions(self):
+        type1 = lt.String(name='MyString')
+        result = json_schema(lt.Object({'foo': type1,
+                                        'bar': lt.List(type1)}))
+
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar']['items'] == \
+            {'$ref': '#/definitions/MyString'}
+
+    def test_duplicate_types_in_dicts_are_extracted_to_definitions(self):
+        type1 = lt.String(name='MyString')
+        result = json_schema(lt.Object({'foo': type1,
+                                        'bar': lt.Dict({'baz': type1})}))
+
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar']['properties']['baz'] == \
+            {'$ref': '#/definitions/MyString'}
+
+    def test_duplicate_types_in_dicts_default_are_extracted_to_definitions(self):
+        type1 = lt.String(name='MyString')
+        result = json_schema(lt.Object({'foo': type1,
+                                        'bar': lt.Dict(type1)}))
+
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar']['additionalProperties'] == \
+            {'$ref': '#/definitions/MyString'}
+
+    def test_duplicate_types_in_one_of_are_extracted_to_definitions(self):
+        type1 = lt.String(name='MyString')
+        result = json_schema(lt.Object({'foo': type1,
+                                        'bar': lt.OneOf([type1, lt.Integer()])}))
+
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar']['anyOf'][0] == \
+            {'$ref': '#/definitions/MyString'}
+
+    def test_duplicate_types_in_optional_are_extracted_to_definitions(self):
+        type1 = lt.String(name='MyString')
+        result = json_schema(lt.Object({'foo': type1,
+                                        'bar': lt.Optional(type1)}))
+
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar'] == \
+            {'$ref': '#/definitions/MyString', 'default': None}
+        assert 'bar' not in result['required']
+
+    def test_type_references(self):
+        registry = lr.TypeRegistry()
+
+        type1 = lt.String(name='MyString')
+        type1_ref = registry.add('AString', type1)
+
+        assert json_schema(type1_ref) == json_schema(type1)
+
+    def test_duplicate_type_references_are_extracted_to_definitions(self):
+        registry = lr.TypeRegistry()
+
+        type1 = lt.String(name='MyString')
+        type1_ref = registry.add('AString', type1)
+
+        result = json_schema(lt.Object({'foo': type1_ref, 'bar': type1_ref}))
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
+
+    def test_duplicate_type_and_type_references_are_extracted_to_definitions(self):
+        registry = lr.TypeRegistry()
+
+        type1 = lt.String(name='MyString')
+        type1_ref = registry.add('AString', type1)
+
+        result = json_schema(lt.Object({'foo': type1, 'bar': type1_ref}))
+        assert 'definitions' in result
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
+
+    def test_self_referencing_types(self):
+        registry = lr.TypeRegistry()
+        errors_type = registry.add('Errors', lt.Dict(
+            lt.OneOf([lt.String(), lt.List(lt.String()), registry['Errors']]),
+            name='Errors',
+        ))
+
+        result = json_schema(errors_type)
+
+        assert sorted(result.keys()) == sorted(['definitions', '$ref'])
+
+        assert 'Errors' in result['definitions']
+        errorsDef = result['definitions']['Errors']
+        assert errorsDef['title'] == 'Errors'
+        assert errorsDef['type'] == 'object'
+        assert errorsDef['additionalProperties'] == {
+            'anyOf': [
+                json_schema(lt.String()),
+                json_schema(lt.List(lt.String())),
+                {'$ref': '#/definitions/Errors'},
+            ]
+        }
+
+        assert result['$ref'] == '#/definitions/Errors'
+
+    def test_definition_name_sanitization(self):
+        type1 = lt.String(name='My string!')
+
+        result = json_schema(lt.Object({'foo': type1, 'bar': type1}))
+        assert result['definitions'] == {'MyString': json_schema(type1)}
+
+    def test_definition_name_conflict_resolving(self):
+        type1 = lt.String(name='MyType')
+        type2 = lt.Integer(name='MyType')
+        type3 = lt.Boolean(name='MyType')
+
+        result = json_schema(lt.Object({
+            'field1': type1, 'field2': type2, 'field3': type3,
+            'field4': type1, 'field5': type2, 'field6': type3,
+        }))
+        refs = [
+            '#/definitions/MyType',
+            '#/definitions/MyType1',
+            '#/definitions/MyType2',
+        ]
+        assert result['properties']['field1']['$ref'] in refs
+        assert result['properties']['field2']['$ref'] in refs
+        assert result['properties']['field3']['$ref'] in refs
+        assert len(set(result['properties'][field]['$ref']
+                       for field in ['field1', 'field2', 'field3'])) == 3
+
+    def test_unnamed_types_definition_name_conflict_resolving(self):
+        type1 = lt.String()
+        type2 = lt.Integer()
+        type3 = lt.Integer()
+
+        result = json_schema(lt.Object({
+            'field1': type1, 'field2': type2, 'field3': type3,
+            'field4': type1, 'field5': type2, 'field6': type3,
+        }))
+        refs = [
+            '#/definitions/Type',
+            '#/definitions/Type1',
+            '#/definitions/Type2',
+        ]
+        assert result['properties']['field1']['$ref'] in refs
+        assert result['properties']['field2']['$ref'] in refs
+        assert result['properties']['field3']['$ref'] in refs
+        assert len(set(result['properties'][field]['$ref']
+                       for field in ['field1', 'field2', 'field3'])) == 3
+
+    def test_dump_only_type_in_normal_mode(self):
+        type1 = lt.String()
+        assert json_schema(lt.DumpOnly(type1)) == json_schema(type1)
+
+    def test_dump_only_type_in_dump_mode(self):
+        type1 = lt.String()
+        assert json_schema(lt.DumpOnly(type1), mode='dump') == json_schema(type1)
+
+    def test_dump_only_type_in_load_mode(self):
+        assert json_schema(lt.DumpOnly(lt.String()), mode='load') is None
+
+    def test_load_only_type_in_normal_mode(self):
+        type1 = lt.String()
+        assert json_schema(lt.LoadOnly(type1)) == json_schema(type1)
+
+    def test_load_only_type_in_load_mode(self):
+        type1 = lt.String()
+        assert json_schema(lt.LoadOnly(type1), mode='load') == json_schema(type1)
+
+    def test_load_only_type_in_dump_mode(self):
+        assert json_schema(lt.LoadOnly(lt.String()), mode='dump') is None
+
+    def test_list_with_item_type_in_incorrect_mode(self):
+        assert json_schema(lt.List(lt.DumpOnly(lt.String())), mode='load') == \
+            {'type': 'array', 'maxItems': 0}
+
+    def test_tuple_with_item_type_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Tuple([lt.String(), lt.DumpOnly(lt.Integer()), lt.Boolean()]),
+            mode='load',
+        ) == json_schema(lt.Tuple([lt.String(), lt.Boolean()]))
+
+    def test_tuple_with_all_item_types_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Tuple([lt.DumpOnly(lt.String()), lt.DumpOnly(lt.Integer())]),
+            mode='load',
+        ) == {'type': 'array', 'maxItems': 0}
+
+    def test_dict_with_fixed_properties_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Dict({'foo': lt.String(), 'bar': lt.DumpOnly(lt.Integer())}),
+            mode='load',
+        ) == json_schema(lt.Dict({'foo': lt.String()}))
+
+        assert json_schema(
+            lt.Dict({'foo': lt.DumpOnly(lt.String()),
+                     'bar': lt.DumpOnly(lt.Integer())}),
+            mode='load',
+        ) == {'type': 'object', 'maxProperties': 0}
+
+    def test_dict_with_default_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Dict(
+                DictWithDefault({
+                    'foo': lt.String(),
+                    'bar': lt.Integer(),
+                }, lt.DumpOnly(lt.Boolean())),
+            ),
+            mode='load',
+        ) == json_schema(lt.Dict({'foo': lt.String(), 'bar': lt.Integer()}))
+
+        assert json_schema(lt.Dict(lt.DumpOnly(lt.String())), mode='load') == \
+            {'type': 'object', 'maxProperties': 0}
+
+    def test_dict_with_all_fixed_properties_and_default_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Dict(
+                DictWithDefault({
+                    'foo': lt.DumpOnly(lt.String()),
+                    'bar': lt.DumpOnly(lt.Integer()),
+                }, lt.DumpOnly(lt.Boolean())),
+            ),
+            mode='load',
+        ) == {'type': 'object', 'maxProperties': 0}
+
+    def test_object_with_fields_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Object({
+                'foo': lt.String(),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }),
+            mode='load',
+        ) == json_schema(lt.Object({'foo': lt.String()}))
+
+    def test_object_with_allowed_extra_fields_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Object({
+                'foo': lt.String(),
+                'bar': lt.Integer(),
+            }, allow_extra_fields=lt.DumpOnly(lt.String())),
+            mode='load',
+        ) == json_schema(lt.Object({'foo': lt.String(), 'bar': lt.Integer()}))
+
+    def test_object_with_all_fields_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Object({
+                'foo': lt.DumpOnly(lt.String()),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }, allow_extra_fields=lt.String()),
+            mode='load',
+        ) == json_schema(lt.Object({}, allow_extra_fields=lt.String()))
+
+        assert json_schema(
+            lt.Object({
+                'foo': lt.DumpOnly(lt.String()),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }),
+            mode='load',
+        ) == {'type': 'object', 'maxProperties': 0}
+
+    def test_object_with_all_fields_and_extra_fields_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Object({
+                'foo': lt.DumpOnly(lt.String()),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }, allow_extra_fields=lt.DumpOnly(lt.String())),
+            mode='load',
+        ) == {'type': 'object', 'maxProperties': 0}
+
+    def test_one_of_with_item_types_in_sequence_in_incorrect_mode(self):
+        assert json_schema(
+            lt.OneOf([lt.DumpOnly(lt.String()), lt.Integer(), lt.Boolean()]),
+            mode='load',
+        ) == json_schema(lt.OneOf([lt.Integer(), lt.Boolean()]))
+
+    def test_one_of_with_all_item_types_in_sequence_in_incorrect_mode(self):
+        assert json_schema(
+            lt.OneOf([lt.DumpOnly(lt.String()), lt.DumpOnly(lt.Integer())]),
+            mode='load',
+        ) is None
+
+    def test_one_of_with_item_types_in_mapping_in_incorrect_mode(self):
+        assert json_schema(
+            lt.OneOf({
+                'foo': lt.String(),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }),
+            mode='load',
+        ) == json_schema(lt.OneOf({'foo': lt.String()}))
+
+    def test_one_of_with_item_types_in_mapping_in_incorrect_mode(self):
+        assert json_schema(
+            lt.OneOf({
+                'foo': lt.DumpOnly(lt.String()),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }),
+            mode='load',
+        ) is None
+
+    def test_type_ref_with_inner_type_in_incorrect_mode(self):
+        registry = lr.TypeRegistry()
+        type_ref = registry.add('Foo', lt.DumpOnly(lt.String()))
+
+        assert json_schema(type_ref, mode='load') is None
