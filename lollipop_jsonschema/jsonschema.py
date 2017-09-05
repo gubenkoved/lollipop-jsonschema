@@ -31,13 +31,22 @@ def _sanitize_name(name):
     return camel_cased_name
 
 
-def json_schema(schema, definitions=None):
+class JsonSchemaContext(object):
+    def __init__(self, definitions=None, mode=None):
+        if mode is not None and mode not in ['load', 'dump']:
+            raise ValueError('Invlaid mode: %s' % mode)
+
+        self.definitions = definitions if definitions is not None else {}
+        self.mode = mode
+
+
+def json_schema(schema, definitions=None, mode=None):
     """Convert Lollipop schema to JSON schema."""
     is_top_level_schema = definitions is None
-    if definitions is None:
-        definitions = {}
+    context = JsonSchemaContext(definitions=definitions, mode=mode)
 
-    definition_names = {definition.name for definition in itervalues(definitions)}
+    definition_names = {definition.name
+                        for definition in itervalues(context.definitions)}
 
     counts = {}
     _count_schema_usages(schema, counts)
@@ -46,7 +55,7 @@ def json_schema(schema, definitions=None):
         if count == 1:
             continue
 
-        if schema1 not in definitions:
+        if schema1 not in context.definitions:
             def_name = _sanitize_name(schema1.name) if schema1.name else 'Type'
 
             if def_name in definition_names:
@@ -55,21 +64,21 @@ def json_schema(schema, definitions=None):
                     i += 1
                 def_name += str(i)
 
-            definitions[schema1] = Definition(def_name)
+            context.definitions[schema1] = Definition(def_name)
             definition_names.add(def_name)
 
-    for schema1, definition in iteritems(definitions):
+    for schema1, definition in iteritems(context.definitions):
         if definition.jsonschema is not None:
             continue
 
-        definitions[schema1].jsonschema = _json_schema(
-            schema1, definitions, force_render=True,
+        context.definitions[schema1].jsonschema = _json_schema(
+            schema1, context, force_render=True,
         )
 
-    js = _json_schema(schema, definitions=definitions)
-    if is_top_level_schema and definitions:
+    js = _json_schema(schema, context=context)
+    if is_top_level_schema and context.definitions:
         js['definitions'] = {definition.name: definition.jsonschema
-                             for definition in itervalues(definitions)}
+                             for definition in itervalues(context.definitions)}
     return js
 
 
@@ -120,21 +129,37 @@ def is_optional(schema):
     return has_modifier(schema, lt.Optional)
 
 
-def _json_schema(schema, definitions, force_render=False):
-    if schema in definitions and not force_render:
-        return {'$ref': '#/definitions/' + definitions[schema].name}
+def is_dump_schema(schema):
+    return not has_modifier(schema, lt.LoadOnly)
+
+
+def is_load_schema(schema):
+    return not has_modifier(schema, lt.DumpOnly)
+
+
+def _json_schema(schema, context, force_render=False):
+    if schema in context.definitions and not force_render:
+        return {'$ref': '#/definitions/' + context.definitions[schema].name}
 
     if isinstance(schema, lt.Modifier):
-        js = _json_schema(schema.inner_type, definitions=definitions)
+        js = _json_schema(schema.inner_type, context=context)
+        if js is None:
+            return None
+
         if isinstance(schema, lt.Optional):
             default = schema.load_default()
             if default:
                 js['default'] = schema.inner_type.dump(default)
+        elif context.mode and (
+                (context.mode == 'dump' and not is_dump_schema(schema)) or
+                (context.mode == 'load' and not is_load_schema(schema))
+        ):
+            return None
 
         return js
 
     if isinstance(schema, lr.TypeRef):
-        return _json_schema(schema.inner_type, definitions=definitions,
+        return _json_schema(schema.inner_type, context=context,
                             force_render=force_render)
 
     js = OrderedDict()
@@ -198,71 +223,104 @@ def _json_schema(schema, definitions, force_render=False):
         js['type'] = 'boolean'
     elif isinstance(schema, lt.List):
         js['type'] = 'array'
-        js['items'] = _json_schema(schema.item_type, definitions=definitions)
+        item_schema = _json_schema(schema.item_type, context=context)
+        if item_schema is None:
+            js['maxItems'] = 0
+        else:
+            js['items'] = item_schema
+            length_validators = find_validators(schema, lv.Length)
+            if length_validators:
+                if any(v.min for v in length_validators) or \
+                        any(v.exact for v in length_validators):
+                    js['minItems'] = min(v.exact or v.min for v in length_validators)
+                if any(v.max for v in length_validators) or \
+                        any(v.exact for v in length_validators):
+                    js['maxItems'] = min(v.exact or v.max for v in length_validators)
 
-        length_validators = find_validators(schema, lv.Length)
-        if length_validators:
-            if any(v.min for v in length_validators) or \
-                    any(v.exact for v in length_validators):
-                js['minItems'] = min(v.exact or v.min for v in length_validators)
-            if any(v.max for v in length_validators) or \
-                    any(v.exact for v in length_validators):
-                js['maxItems'] = min(v.exact or v.max for v in length_validators)
-
-        unique_validators = find_validators(schema, lv.Unique)
-        if unique_validators and any(v.key is identity for v in unique_validators):
-            js['uniqueItems'] = True
+            unique_validators = find_validators(schema, lv.Unique)
+            if unique_validators and any(v.key is identity for v in unique_validators):
+                js['uniqueItems'] = True
     elif isinstance(schema, lt.Tuple):
         js['type'] = 'array'
-        js['items'] = [
-            _json_schema(item_type, definitions=definitions)
+        items_schema = [
+            item_schema
             for item_type in schema.item_types
+            for item_schema in [_json_schema(item_type, context=context)]
+            if item_schema is not None
         ]
+        if not items_schema:
+            js['maxItems'] = 0
+        else:
+            js['items'] = items_schema
     elif isinstance(schema, lt.Object):
         js['type'] = 'object'
-        js['properties'] = OrderedDict(
-            (k, _json_schema(v.field_type, definitions=definitions))
-            for k, v in iteritems(schema.fields)
+        properties = OrderedDict(
+            (field_name, field_schema)
+            for field_name, field in iteritems(schema.fields)
+            for field_schema in [_json_schema(field.field_type, context=context)]
+            if field_schema is not None
         )
-        required = [
-            k
-            for k, v in iteritems(schema.fields)
-            if not is_optional(v.field_type)
-        ]
-        if required:
-            js['required'] = required
+        if properties:
+            js['properties'] = properties
+
+            required = [
+                field_name
+                for field_name, field in iteritems(schema.fields)
+                if not is_optional(field.field_type) and field_name in js['properties']
+            ]
+            if required:
+                js['required'] = required
+
         if schema.allow_extra_fields in [True, False]:
             js['additionalProperties'] = schema.allow_extra_fields
         elif isinstance(schema.allow_extra_fields, lt.Field):
             field_type = schema.allow_extra_fields.field_type
-            if isinstance(field_type, lt.Any):
-                js['additionalProperties'] = True
-            else:
-                js['additionalProperties'] = _json_schema(field_type,
-                                                          definitions=definitions)
+            field_schema = _json_schema(field_type, context=context)
+            if field_schema is not None:
+                if isinstance(field_type, lt.Any):
+                    js['additionalProperties'] = True
+                else:
+                    js['additionalProperties'] = field_schema
+
+        if not js.get('properties') and not js.get('additionalProperties'):
+            js['maxProperties'] = 0
     elif isinstance(schema, lt.Dict):
         js['type'] = 'object'
         properties = OrderedDict(
-            (k, _json_schema(v, definitions=definitions))
+            (k, value_schema)
             for k, v in iteritems(schema.value_types)
+            for value_schema in [_json_schema(v, context=context)]
+            if value_schema is not None
         )
         if properties:
             js['properties'] = properties
         required = [
             k
             for k, v in iteritems(schema.value_types)
-            if not is_optional(v)
+            if not is_optional(v) and k in properties
         ]
         if required:
             js['required'] = required
         if hasattr(schema.value_types, 'default'):
-            js['additionalProperties'] = _json_schema(
-                schema.value_types.default, definitions=definitions)
+            additional_schema = _json_schema(
+                schema.value_types.default, context=context,
+            )
+            if additional_schema is not None:
+                js['additionalProperties'] = additional_schema
+
+        if not js.get('properties') and not js.get('additionalProperties'):
+            js['maxProperties'] = 0
     elif isinstance(schema, lt.OneOf):
         types = itervalues(schema.types) \
             if is_mapping(schema.types) else schema.types
-        js['anyOf'] = [_json_schema(variant, definitions=definitions)
-                       for variant in types]
+        js['anyOf'] = [
+            variant_schema
+            for variant in types
+            for variant_schema in [_json_schema(variant, context=context)]
+            if variant_schema is not None
+        ]
+        if not js['anyOf']:
+            return None
     elif isinstance(schema, lt.Constant):
         js['const'] = schema.value
 

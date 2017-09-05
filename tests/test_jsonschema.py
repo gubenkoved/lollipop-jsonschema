@@ -1,7 +1,7 @@
 import lollipop.type_registry as lr
 import lollipop.types as lt
 import lollipop.validators as lv
-from lollipop.utils import is_mapping
+from lollipop.utils import is_mapping, DictWithDefault
 from lollipop_jsonschema import json_schema
 from lollipop_jsonschema.compat import iteritems
 import pytest
@@ -506,3 +506,158 @@ class TestJsonSchema:
         assert result['properties']['field3']['$ref'] in refs
         assert len(set(result['properties'][field]['$ref']
                        for field in ['field1', 'field2', 'field3'])) == 3
+
+    def test_dump_only_type_in_normal_mode(self):
+        type1 = lt.String()
+        assert json_schema(lt.DumpOnly(type1)) == json_schema(type1)
+
+    def test_dump_only_type_in_dump_mode(self):
+        type1 = lt.String()
+        assert json_schema(lt.DumpOnly(type1), mode='dump') == json_schema(type1)
+
+    def test_dump_only_type_in_load_mode(self):
+        assert json_schema(lt.DumpOnly(lt.String()), mode='load') is None
+
+    def test_load_only_type_in_normal_mode(self):
+        type1 = lt.String()
+        assert json_schema(lt.LoadOnly(type1)) == json_schema(type1)
+
+    def test_load_only_type_in_load_mode(self):
+        type1 = lt.String()
+        assert json_schema(lt.LoadOnly(type1), mode='load') == json_schema(type1)
+
+    def test_load_only_type_in_dump_mode(self):
+        assert json_schema(lt.LoadOnly(lt.String()), mode='dump') is None
+
+    def test_list_with_item_type_in_incorrect_mode(self):
+        assert json_schema(lt.List(lt.DumpOnly(lt.String())), mode='load') == \
+            {'type': 'array', 'maxItems': 0}
+
+    def test_tuple_with_item_type_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Tuple([lt.String(), lt.DumpOnly(lt.Integer()), lt.Boolean()]),
+            mode='load',
+        ) == json_schema(lt.Tuple([lt.String(), lt.Boolean()]))
+
+    def test_tuple_with_all_item_types_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Tuple([lt.DumpOnly(lt.String()), lt.DumpOnly(lt.Integer())]),
+            mode='load',
+        ) == {'type': 'array', 'maxItems': 0}
+
+    def test_dict_with_fixed_properties_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Dict({'foo': lt.String(), 'bar': lt.DumpOnly(lt.Integer())}),
+            mode='load',
+        ) == json_schema(lt.Dict({'foo': lt.String()}))
+
+        assert json_schema(
+            lt.Dict({'foo': lt.DumpOnly(lt.String()),
+                     'bar': lt.DumpOnly(lt.Integer())}),
+            mode='load',
+        ) == {'type': 'object', 'maxProperties': 0}
+
+    def test_dict_with_default_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Dict(
+                DictWithDefault({
+                    'foo': lt.String(),
+                    'bar': lt.Integer(),
+                }, lt.DumpOnly(lt.Boolean())),
+            ),
+            mode='load',
+        ) == json_schema(lt.Dict({'foo': lt.String(), 'bar': lt.Integer()}))
+
+        assert json_schema(lt.Dict(lt.DumpOnly(lt.String())), mode='load') == \
+            {'type': 'object', 'maxProperties': 0}
+
+    def test_dict_with_all_fixed_properties_and_default_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Dict(
+                DictWithDefault({
+                    'foo': lt.DumpOnly(lt.String()),
+                    'bar': lt.DumpOnly(lt.Integer()),
+                }, lt.DumpOnly(lt.Boolean())),
+            ),
+            mode='load',
+        ) == {'type': 'object', 'maxProperties': 0}
+
+    def test_object_with_fields_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Object({
+                'foo': lt.String(),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }),
+            mode='load',
+        ) == json_schema(lt.Object({'foo': lt.String()}))
+
+    def test_object_with_allowed_extra_fields_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Object({
+                'foo': lt.String(),
+                'bar': lt.Integer(),
+            }, allow_extra_fields=lt.DumpOnly(lt.String())),
+            mode='load',
+        ) == json_schema(lt.Object({'foo': lt.String(), 'bar': lt.Integer()}))
+
+    def test_object_with_all_fields_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Object({
+                'foo': lt.DumpOnly(lt.String()),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }, allow_extra_fields=lt.String()),
+            mode='load',
+        ) == json_schema(lt.Object({}, allow_extra_fields=lt.String()))
+
+        assert json_schema(
+            lt.Object({
+                'foo': lt.DumpOnly(lt.String()),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }),
+            mode='load',
+        ) == {'type': 'object', 'maxProperties': 0}
+
+    def test_object_with_all_fields_and_extra_fields_in_incorrect_mode(self):
+        assert json_schema(
+            lt.Object({
+                'foo': lt.DumpOnly(lt.String()),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }, allow_extra_fields=lt.DumpOnly(lt.String())),
+            mode='load',
+        ) == {'type': 'object', 'maxProperties': 0}
+
+    def test_one_of_with_item_types_in_sequence_in_incorrect_mode(self):
+        assert json_schema(
+            lt.OneOf([lt.DumpOnly(lt.String()), lt.Integer(), lt.Boolean()]),
+            mode='load',
+        ) == json_schema(lt.OneOf([lt.Integer(), lt.Boolean()]))
+
+    def test_one_of_with_all_item_types_in_sequence_in_incorrect_mode(self):
+        assert json_schema(
+            lt.OneOf([lt.DumpOnly(lt.String()), lt.DumpOnly(lt.Integer())]),
+            mode='load',
+        ) is None
+
+    def test_one_of_with_item_types_in_mapping_in_incorrect_mode(self):
+        assert json_schema(
+            lt.OneOf({
+                'foo': lt.String(),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }),
+            mode='load',
+        ) == json_schema(lt.OneOf({'foo': lt.String()}))
+
+    def test_one_of_with_item_types_in_mapping_in_incorrect_mode(self):
+        assert json_schema(
+            lt.OneOf({
+                'foo': lt.DumpOnly(lt.String()),
+                'bar': lt.DumpOnly(lt.Integer()),
+            }),
+            mode='load',
+        ) is None
+
+    def test_type_ref_with_inner_type_in_incorrect_mode(self):
+        registry = lr.TypeRegistry()
+        type_ref = registry.add('Foo', lt.DumpOnly(lt.String()))
+
+        assert json_schema(type_ref, mode='load') is None
