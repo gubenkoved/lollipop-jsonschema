@@ -291,9 +291,11 @@ class TestJsonSchema:
         assert json_schema(lt.Constant('foo')) == {'const': 'foo'}
         assert json_schema(lt.Constant(123)) == {'const': 123}
 
-    def test_optional_schema_is_its_inner_type_schema(self):
-        assert json_schema(lt.Optional(lt.String())) == json_schema(lt.String())
-        assert json_schema(lt.Optional(lt.Integer())) == json_schema(lt.Integer())
+    def test_optional_schema_is_its_inner_type_schema_with_default_annotation(self):
+        assert json_schema(lt.Optional(lt.String())) == \
+            dict(json_schema(lt.String()), default=None)
+        assert json_schema(lt.Optional(lt.Integer())) == \
+            dict(json_schema(lt.Integer()), default=None)
 
     def test_optional_load_default_is_used_as_default(self):
         assert json_schema(lt.Optional(lt.String(), load_default='foo')) \
@@ -307,6 +309,10 @@ class TestJsonSchema:
         }), load_default=MyType('hello', 123)))
 
         assert result['default'] == {'foo': 'hello', 'bar': 123}
+
+    def test_optional_load_default_is_skipped_if_MISSING(self):
+        assert json_schema(lt.Optional(lt.String(), load_default=lt.MISSING)) \
+            == {'type': 'string'}
 
     def test_one_of_schema_with_sequence(self):
         t1 = lt.String()
@@ -408,7 +414,8 @@ class TestJsonSchema:
         assert 'definitions' in result
         assert result['definitions'] == {'MyString': json_schema(type1)}
         assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
-        assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
+        assert result['properties']['bar'] == \
+            {'$ref': '#/definitions/MyString', 'default': None}
         assert 'bar' not in result['required']
 
     def test_type_references(self):

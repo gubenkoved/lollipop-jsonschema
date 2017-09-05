@@ -154,7 +154,9 @@ def _json_schema(schema, context, force_render=False):
 
         if isinstance(schema, lt.Optional):
             default = schema.load_default()
-            if default:
+            if default is None:
+                js['default'] = None
+            elif default is not lt.MISSING:
                 js['default'] = schema.inner_type.dump(default)
         elif context.mode and (
                 (context.mode == 'dump' and not is_dump_schema(schema)) or
