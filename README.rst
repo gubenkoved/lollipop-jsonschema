@@ -70,7 +70,7 @@ Requirements
 ============
 
 - Python >= 2.7 and <= 3.6
-- `lollipop <https://pypi.python.org/pypi/lollipop>`_ >= 1.1.2
+- `lollipop <https://pypi.python.org/pypi/lollipop>`_ >= 1.1.5
 
 Project Links
 =============
