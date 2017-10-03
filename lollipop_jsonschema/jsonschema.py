@@ -187,8 +187,6 @@ def _json_schema(schema, context, force_render=False):
 
         js['enum'] = list(schema.dump(choice) for choice in choices)
 
-        return js
-
     none_of_validators = find_validators(schema, lv.NoneOf)
     if none_of_validators:
         choices = set(none_of_validators[0].values)

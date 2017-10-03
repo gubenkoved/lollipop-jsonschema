@@ -224,11 +224,13 @@ class TestJsonSchema:
 
     def test_type_with_any_of_validator_is_dumped_as_enum(self):
         jschema = json_schema(lt.String(validate=lv.AnyOf(['foo', 'bar', 'baz'])))
-        assert len(jschema) == 1
+        assert len(jschema) == 2
+        assert jschema['type'] == 'string'
         assert sorted(jschema['enum']) == sorted(['foo', 'bar', 'baz'])
 
         jschema = json_schema(lt.Integer(validate=lv.AnyOf([1, 2, 3])))
-        assert len(jschema) == 1
+        assert len(jschema) == 2
+        assert jschema['type'] == 'integer'
         assert sorted(jschema['enum']) == sorted([1, 2, 3])
 
     def test_type_with_any_of_validator_values_are_serialized(self):
@@ -251,7 +253,8 @@ class TestJsonSchema:
             ])
         )
 
-        assert len(jschema) == 1
+        assert len(jschema) == 2
+        assert jschema['type'] == 'string'
         assert sorted(jschema['enum']) == sorted(['bar', 'baz'])
 
     def test_type_with_none_of_validator_is_dumped_as_not_enum(self):
