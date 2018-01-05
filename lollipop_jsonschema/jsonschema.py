@@ -1,5 +1,20 @@
 __all__ = [
     'json_schema',
+
+    'Encoder',
+    'TypeEncoder',
+
+    'ModifierEncoder',
+    'AnyEncoder',
+    'StringEncoder',
+    'NumberEncoder',
+    'BooleanEncoder',
+    'ListEncoder',
+    'TupleEncoder',
+    'ObjectEncoder',
+    'DictEncoder',
+    'OneOfEncoder',
+    'ConstantEncoder',
 ]
 
 import lollipop.type_registry as lr
@@ -31,92 +46,6 @@ def _sanitize_name(name):
     return camel_cased_name
 
 
-class JsonSchemaContext(object):
-    def __init__(self, definitions=None, mode=None):
-        if mode is not None and mode not in ['load', 'dump']:
-            raise ValueError('Invlaid mode: %s' % mode)
-
-        self.definitions = definitions if definitions is not None else {}
-        self.mode = mode
-
-
-def json_schema(schema, definitions=None, mode=None):
-    """Convert Lollipop schema to JSON schema."""
-    is_top_level_schema = definitions is None
-    context = JsonSchemaContext(definitions=definitions, mode=mode)
-
-    definition_names = {definition.name
-                        for definition in itervalues(context.definitions)}
-
-    counts = {}
-    _count_schema_usages(schema, counts)
-
-    for schema1, count in iteritems(counts):
-        if count == 1:
-            continue
-
-        if schema1 not in context.definitions:
-            def_name = _sanitize_name(schema1.name) if schema1.name else 'Type'
-
-            if def_name in definition_names:
-                i = 1
-                while def_name + str(i) in definition_names:
-                    i += 1
-                def_name += str(i)
-
-            context.definitions[schema1] = Definition(def_name)
-            definition_names.add(def_name)
-
-    for schema1, definition in iteritems(context.definitions):
-        if definition.jsonschema is not None:
-            continue
-
-        context.definitions[schema1].jsonschema = _json_schema(
-            schema1, context, force_render=True,
-        )
-
-    js = _json_schema(schema, context=context)
-    if is_top_level_schema and context.definitions:
-        js['definitions'] = {definition.name: definition.jsonschema
-                             for definition in itervalues(context.definitions)}
-    return js
-
-
-def _count_schema_usages(schema, counts):
-    if schema in counts:
-        counts[schema] += 1
-        return
-
-    if isinstance(schema, lr.TypeRef):
-        _count_schema_usages(schema.inner_type, counts)
-        return
-
-    counts[schema] = 1
-    if isinstance(schema, lt.List):
-        _count_schema_usages(schema.item_type, counts)
-    elif isinstance(schema, lt.Tuple):
-        for item_type in schema.item_types:
-            _count_schema_usages(item_type, counts)
-    elif isinstance(schema, lt.Object):
-        for field in itervalues(schema.fields):
-            _count_schema_usages(field.field_type, counts)
-
-        if isinstance(schema.allow_extra_fields, lt.Field):
-            _count_schema_usages(schema.allow_extra_fields.field_type, counts)
-    elif isinstance(schema, lt.Dict):
-        for _, value_type in iteritems(schema.value_types):
-            _count_schema_usages(value_type, counts)
-        if hasattr(schema.value_types, 'default'):
-            _count_schema_usages(schema.value_types.default, counts)
-    elif isinstance(schema, lt.OneOf):
-        types = itervalues(schema.types) \
-            if is_mapping(schema.types) else schema.types
-        for item_type in types:
-            _count_schema_usages(item_type, counts)
-    elif hasattr(schema, 'inner_type'):
-        _count_schema_usages(schema.inner_type, counts)
-
-
 def has_modifier(schema, modifier):
     while isinstance(schema, (lt.Modifier, lr.TypeRef)):
         if isinstance(schema, modifier):
@@ -129,6 +58,42 @@ def is_optional(schema):
     return has_modifier(schema, lt.Optional)
 
 
+class TypeEncoder(object):
+    schema_type = object
+
+    def match(self, schema):
+        return isinstance(schema, self.schema_type)
+
+    def json_schema(self, encoder, schema):
+        js = OrderedDict()
+        if schema.name:
+            js['title'] = schema.name
+        if schema.description:
+            js['description'] = schema.description
+
+        any_of_validators = find_validators(schema, lv.AnyOf)
+        if any_of_validators:
+            choices = set(any_of_validators[0].choices)
+            for validator in any_of_validators[1:]:
+                choices = choices.intersection(set(validator.choices))
+
+            if not choices:
+                raise ValueError('AnyOf constraints choices does not allow any values')
+
+            js['enum'] = list(schema.dump(choice) for choice in choices)
+
+        none_of_validators = find_validators(schema, lv.NoneOf)
+        if none_of_validators:
+            choices = set(none_of_validators[0].values)
+            for validator in none_of_validators[1:]:
+                choices = choices.union(set(validator.values))
+
+            if choices:
+                js['not'] = {'enum': list(schema.dump(choice) for choice in choices)}
+
+        return js
+
+
 def is_dump_schema(schema):
     return not has_modifier(schema, lt.LoadOnly)
 
@@ -137,18 +102,11 @@ def is_load_schema(schema):
     return not has_modifier(schema, lt.DumpOnly)
 
 
-def is_type(schema, schema_type):
-    while isinstance(schema, (lt.Modifier, lr.TypeRef)):
-        schema = schema.inner_type
-    return isinstance(schema, schema_type)
+class ModifierEncoder(TypeEncoder):
+    schema_type = lt.Modifier
 
-
-def _json_schema(schema, context, force_render=False):
-    if schema in context.definitions and not force_render:
-        return {'$ref': '#/definitions/' + context.definitions[schema].name}
-
-    if isinstance(schema, lt.Modifier):
-        js = _json_schema(schema.inner_type, context=context)
+    def json_schema(self, encoder, schema):
+        js = encoder.json_schema(schema.inner_type)
         if js is None:
             return None
 
@@ -158,47 +116,25 @@ def _json_schema(schema, context, force_render=False):
                 js['default'] = None
             elif default is not lt.MISSING:
                 js['default'] = schema.inner_type.dump(default)
-        elif context.mode and (
-                (context.mode == 'dump' and not is_dump_schema(schema)) or
-                (context.mode == 'load' and not is_load_schema(schema))
+        elif encoder.mode and (
+                (encoder.mode == 'dump' and not is_dump_schema(schema)) or
+                (encoder.mode == 'load' and not is_load_schema(schema))
         ):
             return None
 
         return js
 
-    if isinstance(schema, lr.TypeRef):
-        return _json_schema(schema.inner_type, context=context,
-                            force_render=force_render)
 
-    js = OrderedDict()
-    if schema.name:
-        js['title'] = schema.name
-    if schema.description:
-        js['description'] = schema.description
+class AnyEncoder(TypeEncoder):
+    schema_type = lt.Any
 
-    any_of_validators = find_validators(schema, lv.AnyOf)
-    if any_of_validators:
-        choices = set(any_of_validators[0].choices)
-        for validator in any_of_validators[1:]:
-            choices = choices.intersection(set(validator.choices))
 
-        if not choices:
-            raise ValueError('AnyOf constraints choices does not allow any values')
+class StringEncoder(TypeEncoder):
+    schema_type = lt.String
 
-        js['enum'] = list(schema.dump(choice) for choice in choices)
+    def json_schema(self, encoder, schema):
+        js = super(StringEncoder, self).json_schema(encoder, schema)
 
-    none_of_validators = find_validators(schema, lv.NoneOf)
-    if none_of_validators:
-        choices = set(none_of_validators[0].values)
-        for validator in none_of_validators[1:]:
-            choices = choices.union(set(validator.values))
-
-        if choices:
-            js['not'] = {'enum': list(schema.dump(choice) for choice in choices)}
-
-    if isinstance(schema, lt.Any):
-        pass
-    elif isinstance(schema, lt.String):
         js['type'] = 'string'
 
         length_validators = find_validators(schema, lv.Length)
@@ -213,7 +149,16 @@ def _json_schema(schema, context, force_render=False):
         regexp_validators = find_validators(schema, lv.Regexp)
         if regexp_validators:
             js['pattern'] = regexp_validators[0].regexp.pattern
-    elif isinstance(schema, lt.Number):
+
+        return js
+
+
+class NumberEncoder(TypeEncoder):
+    schema_type = lt.Number
+
+    def json_schema(self, encoder, schema):
+        js = super(NumberEncoder, self).json_schema(encoder, schema)
+
         if isinstance(schema, lt.Integer):
             js['type'] = 'integer'
         else:
@@ -225,11 +170,27 @@ def _json_schema(schema, context, force_render=False):
                 js['minimum'] = max(v.min for v in range_validators if v.min)
             if any(v.max for v in range_validators):
                 js['maximum'] = min(v.max for v in range_validators if v.max)
-    elif isinstance(schema, lt.Boolean):
+
+        return js
+
+
+class BooleanEncoder(TypeEncoder):
+    schema_type = lt.Boolean
+
+    def json_schema(self, encoder, schema):
+        js = super(BooleanEncoder, self).json_schema(encoder, schema)
         js['type'] = 'boolean'
-    elif isinstance(schema, lt.List):
+        return js
+
+
+class ListEncoder(TypeEncoder):
+    schema_type = lt.List
+
+    def json_schema(self, encoder, schema):
+        js = super(ListEncoder, self).json_schema(encoder, schema)
+
         js['type'] = 'array'
-        item_schema = _json_schema(schema.item_type, context=context)
+        item_schema = encoder.json_schema(schema.item_type)
         if item_schema is None:
             js['maxItems'] = 0
         else:
@@ -246,24 +207,48 @@ def _json_schema(schema, context, force_render=False):
             unique_validators = find_validators(schema, lv.Unique)
             if unique_validators and any(v.key is identity for v in unique_validators):
                 js['uniqueItems'] = True
-    elif isinstance(schema, lt.Tuple):
+
+        return js
+
+
+class TupleEncoder(TypeEncoder):
+    schema_type = lt.Tuple
+
+    def json_schema(self, encoder, schema):
+        js = super(TupleEncoder, self).json_schema(encoder, schema)
+
         js['type'] = 'array'
         items_schema = [
             item_schema
             for item_type in schema.item_types
-            for item_schema in [_json_schema(item_type, context=context)]
+            for item_schema in [encoder.json_schema(item_type)]
             if item_schema is not None
         ]
         if not items_schema:
             js['maxItems'] = 0
         else:
             js['items'] = items_schema
-    elif isinstance(schema, lt.Object):
+
+        return js
+
+
+def is_type(schema, schema_type):
+    while isinstance(schema, (lt.Modifier, lr.TypeRef)):
+        schema = schema.inner_type
+    return isinstance(schema, schema_type)
+
+
+class ObjectEncoder(TypeEncoder):
+    schema_type = lt.Object
+
+    def json_schema(self, encoder, schema):
+        js = super(ObjectEncoder, self).json_schema(encoder, schema)
+
         js['type'] = 'object'
         properties = OrderedDict(
             (field_name, field_schema)
             for field_name, field in iteritems(schema.fields)
-            for field_schema in [_json_schema(field.field_type, context=context)]
+            for field_schema in [encoder.json_schema(field.field_type)]
             if field_schema is not None
         )
         if properties:
@@ -281,7 +266,7 @@ def _json_schema(schema, context, force_render=False):
             js['additionalProperties'] = schema.allow_extra_fields
         elif isinstance(schema.allow_extra_fields, lt.Field):
             field_type = schema.allow_extra_fields.field_type
-            field_schema = _json_schema(field_type, context=context)
+            field_schema = encoder.json_schema(field_type)
             if field_schema is not None:
                 if is_type(field_type, lt.Any):
                     js['additionalProperties'] = True
@@ -290,12 +275,21 @@ def _json_schema(schema, context, force_render=False):
 
         if not js.get('properties') and not js.get('additionalProperties'):
             js['maxProperties'] = 0
-    elif isinstance(schema, lt.Dict):
+
+        return js
+
+
+class DictEncoder(TypeEncoder):
+    schema_type = lt.Dict
+
+    def json_schema(self, encoder, schema):
+        js = super(DictEncoder, self).json_schema(encoder, schema)
+
         js['type'] = 'object'
         properties = OrderedDict(
             (k, value_schema)
             for k, v in iteritems(schema.value_types)
-            for value_schema in [_json_schema(v, context=context)]
+            for value_schema in [encoder.json_schema(v)]
             if value_schema is not None
         )
         if properties:
@@ -308,26 +302,153 @@ def _json_schema(schema, context, force_render=False):
         if required:
             js['required'] = required
         if hasattr(schema.value_types, 'default'):
-            additional_schema = _json_schema(
-                schema.value_types.default, context=context,
-            )
+            additional_schema = encoder.json_schema(schema.value_types.default)
             if additional_schema is not None:
                 js['additionalProperties'] = additional_schema
 
         if not js.get('properties') and not js.get('additionalProperties'):
             js['maxProperties'] = 0
-    elif isinstance(schema, lt.OneOf):
+
+        return js
+
+
+class OneOfEncoder(TypeEncoder):
+    schema_type = lt.OneOf
+
+    def json_schema(self, encoder, schema):
+        js = super(OneOfEncoder, self).json_schema(encoder, schema)
+
         types = itervalues(schema.types) \
             if is_mapping(schema.types) else schema.types
         js['anyOf'] = [
             variant_schema
             for variant in types
-            for variant_schema in [_json_schema(variant, context=context)]
+            for variant_schema in [encoder.json_schema(variant)]
             if variant_schema is not None
         ]
         if not js['anyOf']:
             return None
-    elif isinstance(schema, lt.Constant):
-        js['const'] = schema.value
 
-    return js
+        return js
+
+
+class ConstantEncoder(TypeEncoder):
+    schema_type = lt.Constant
+
+    def json_schema(self, encoder, schema):
+        js = super(ConstantEncoder, self).json_schema(encoder, schema)
+        js['const'] = schema.value
+        return js
+
+
+class SchemaUsageCounter(object):
+    def __init__(self, type_encoders):
+        self._type_encoders = type_encoders
+        self.counts = {}
+
+    def json_schema(self, schema, force_render=False):
+        if isinstance(schema, lr.TypeRef):
+            schema = schema.inner_type
+
+        if schema in self.counts:
+            self.counts[schema] += 1
+            return
+
+        self.counts[schema] = 1
+
+        for type_encoder in self._type_encoders:
+            if type_encoder.match(schema):
+                type_encoder.json_schema(self, schema)
+                break
+
+
+class JsonSchemaGenerator(object):
+    def __init__(self, type_encoders, definitions=None, mode=None):
+        self.type_encoders = type_encoders
+        self.definitions = definitions
+        self.mode = mode
+
+    def json_schema(self, schema, force_render=False):
+        if isinstance(schema, lr.TypeRef):
+            schema = schema.inner_type
+
+        if schema in self.definitions and not force_render:
+            return {'$ref': '#/definitions/' + self.definitions[schema].name}
+
+        js = None
+        for type_encoder in self.type_encoders:
+            if type_encoder.match(schema):
+                js = type_encoder.json_schema(self, schema)
+                break
+
+        return js
+
+
+class Encoder(object):
+    def __init__(self):
+        self._encoders = []
+
+        self.add_encoder(ModifierEncoder())
+        self.add_encoder(AnyEncoder())
+        self.add_encoder(StringEncoder())
+        self.add_encoder(NumberEncoder())
+        self.add_encoder(BooleanEncoder())
+        self.add_encoder(ListEncoder())
+        self.add_encoder(TupleEncoder())
+        self.add_encoder(ObjectEncoder())
+        self.add_encoder(DictEncoder())
+        self.add_encoder(OneOfEncoder())
+        self.add_encoder(ConstantEncoder())
+
+    def add_encoder(self, encoder):
+        self._encoders.insert(0, encoder)
+
+    def json_schema(self, schema, definitions=None, mode=None):
+        """Convert Lollipop schema to JSON schema."""
+        is_top_level_schema = definitions is None
+        if definitions is None:
+            definitions = {}
+
+        definition_names = {definition.name
+                            for definition in itervalues(definitions)}
+
+        counter = SchemaUsageCounter(self._encoders)
+        counter.json_schema(schema)
+        counts = counter.counts
+
+        for schema1, count in iteritems(counts):
+            if count == 1:
+                continue
+
+            if schema1 not in definitions:
+                def_name = _sanitize_name(schema1.name) if schema1.name else 'Type'
+
+                if def_name in definition_names:
+                    i = 1
+                    while def_name + str(i) in definition_names:
+                        i += 1
+                    def_name += str(i)
+
+                definitions[schema1] = Definition(def_name)
+                definition_names.add(def_name)
+
+        generator = JsonSchemaGenerator(self._encoders, definitions=definitions, mode=mode)
+
+        for schema1, definition in iteritems(definitions):
+            if definition.jsonschema is not None:
+                continue
+
+            definitions[schema1].jsonschema = generator.json_schema(
+                schema1, force_render=True,
+            )
+
+        js = generator.json_schema(schema)
+        if is_top_level_schema and definitions:
+            js['definitions'] = {definition.name: definition.jsonschema
+                                for definition in itervalues(definitions)}
+
+        return js
+
+
+_DEFAULT_ENCODER = Encoder()
+json_schema = _DEFAULT_ENCODER.json_schema

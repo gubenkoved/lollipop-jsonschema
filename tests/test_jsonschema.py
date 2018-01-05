@@ -2,7 +2,7 @@ import lollipop.type_registry as lr
 import lollipop.types as lt
 import lollipop.validators as lv
 from lollipop.utils import is_mapping, DictWithDefault
-from lollipop_jsonschema import json_schema
+from lollipop_jsonschema import json_schema, TypeEncoder, Encoder
 from lollipop_jsonschema.compat import iteritems
 import pytest
 from collections import namedtuple
@@ -678,3 +678,19 @@ class TestJsonSchema:
         type_ref = registry.add('Foo', lt.DumpOnly(lt.String()))
 
         assert json_schema(type_ref, mode='load') is None
+
+    def test_custom_type_schema(self):
+        class MyType(lt.Type): pass
+
+        class MyTypeEncoder(TypeEncoder):
+            schema_type = MyType
+
+            def json_schema(self, encoder, schema):
+                js = super(MyTypeEncoder, self).json_schema(encoder, schema)
+                js['type'] = 'foo'
+                return js
+
+        encoder = Encoder()
+        encoder.add_encoder(MyTypeEncoder())
+
+        assert encoder.json_schema(MyType()) == {'type': 'foo'}
