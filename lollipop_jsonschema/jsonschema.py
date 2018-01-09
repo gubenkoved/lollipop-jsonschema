@@ -9,6 +9,9 @@ __all__ = [
     'StringEncoder',
     'NumberEncoder',
     'BooleanEncoder',
+    'DateTimeEncoder',
+    'DateEncoder',
+    'TimeEncoder',
     'ListEncoder',
     'TupleEncoder',
     'ObjectEncoder',
@@ -180,6 +183,42 @@ class BooleanEncoder(TypeEncoder):
     def json_schema(self, encoder, schema):
         js = super(BooleanEncoder, self).json_schema(encoder, schema)
         js['type'] = 'boolean'
+        return js
+
+
+class DateTimeEncoder(TypeEncoder):
+    schema_type = lt.DateTime
+
+    def json_schema(self, encoder, schema):
+        js = super(DateTimeEncoder, self).json_schema(encoder, schema)
+
+        js['type'] = 'string'
+        js['format'] = 'date-time'
+
+        return js
+
+
+class DateEncoder(TypeEncoder):
+    schema_type = lt.Date
+
+    def json_schema(self, encoder, schema):
+        js = super(DateEncoder, self).json_schema(encoder, schema)
+
+        js['type'] = 'string'
+        js['format'] = 'date'
+
+        return js
+
+
+class TimeEncoder(TypeEncoder):
+    schema_type = lt.Time
+
+    def json_schema(self, encoder, schema):
+        js = super(TimeEncoder, self).json_schema(encoder, schema)
+
+        js['type'] = 'string'
+        js['format'] = 'time'
+
         return js
 
 
@@ -393,6 +432,9 @@ class Encoder(object):
         self.add_encoder(StringEncoder())
         self.add_encoder(NumberEncoder())
         self.add_encoder(BooleanEncoder())
+        self.add_encoder(DateTimeEncoder())
+        self.add_encoder(DateEncoder())
+        self.add_encoder(TimeEncoder())
         self.add_encoder(ListEncoder())
         self.add_encoder(TupleEncoder())
         self.add_encoder(ObjectEncoder())
