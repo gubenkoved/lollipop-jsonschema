@@ -21,17 +21,48 @@ class TestJsonSchema:
     def test_string_minLength(self):
         assert json_schema(lt.String(validate=lv.Length(min=1))) == \
             {'type': 'string', 'minLength': 1}
+        assert json_schema(lt.String(validate=lv.Length(min=0))) == \
+            {'type': 'string', 'minLength': 0}
+
+    def test_string_multiple_minLength(self):
+        assert json_schema(lt.String(validate=[lv.Length(min=1),
+                                               lv.Length(min=3)])) == \
+            {'type': 'string', 'minLength': 3}
 
     def test_string_maxLength(self):
         assert json_schema(lt.String(validate=lv.Length(max=10))) == \
             {'type': 'string', 'maxLength': 10}
+        assert json_schema(lt.String(validate=lv.Length(max=0))) == \
+            {'type': 'string', 'maxLength': 0}
+
+    def test_string_multiple_maxLength(self):
+        assert json_schema(lt.String(validate=[lv.Length(max=10),
+                                               lv.Length(max=5)])) == \
+            {'type': 'string', 'maxLength': 5}
 
     def test_string_min_and_maxLength(self):
         assert json_schema(lt.String(validate=lv.Length(min=1, max=10))) == \
             {'type': 'string', 'minLength': 1, 'maxLength': 10}
+        assert json_schema(lt.String(validate=lv.Length(min=0, max=10))) == \
+            {'type': 'string', 'minLength': 0, 'maxLength': 10}
+        assert json_schema(lt.String(validate=lv.Length(min=-10, max=0))) == \
+            {'type': 'string', 'minLength': -10, 'maxLength': 0}
+
+    def test_string_multiple_min_and_maxLength(self):
+        assert json_schema(lt.String(validate=[lv.Length(min=1, max=10),
+                                               lv.Length(min=5, max=15)])) == \
+            {'type': 'string', 'minLength': 5, 'maxLength': 10}
 
     def test_string_exact_length(self):
         assert json_schema(lt.String(validate=lv.Length(exact=5))) == \
+            {'type': 'string', 'minLength': 5, 'maxLength': 5}
+        assert json_schema(lt.String(validate=lv.Length(exact=0))) == \
+            {'type': 'string', 'minLength': 0, 'maxLength': 0}
+
+    def test_string_min_max_and_exact_length(self):
+        assert json_schema(lt.String(validate=[lv.Length(exact=5),
+                                               lv.Length(min=1),
+                                               lv.Length(max=10)])) == \
             {'type': 'string', 'minLength': 5, 'maxLength': 5}
 
     def test_string_pattern(self):
@@ -44,14 +75,37 @@ class TestJsonSchema:
     def test_number_minimum(self):
         assert json_schema(lt.Float(validate=lv.Range(min=2))) == \
             {'type': 'number', 'minimum': 2}
+        assert json_schema(lt.Float(validate=lv.Range(min=0))) == \
+            {'type': 'number', 'minimum': 0}
+
+    def test_number_multiple_minimum(self):
+        assert json_schema(lt.Float(validate=[lv.Range(min=2),
+                                              lv.Range(min=5)])) == \
+            {'type': 'number', 'minimum': 5}
 
     def test_number_maximum(self):
         assert json_schema(lt.Float(validate=lv.Range(max=10))) == \
+            {'type': 'number', 'maximum': 10}
+        assert json_schema(lt.Float(validate=lv.Range(max=0))) == \
+            {'type': 'number', 'maximum': 0}
+
+    def test_number_multiple_maximum(self):
+        assert json_schema(lt.Float(validate=[lv.Range(max=10),
+                                              lv.Range(max=20)])) == \
             {'type': 'number', 'maximum': 10}
 
     def test_number_minimum_and_maximum(self):
         assert json_schema(lt.Float(validate=lv.Range(min=1, max=10))) == \
             {'type': 'number', 'minimum': 1, 'maximum': 10}
+        assert json_schema(lt.Float(validate=lv.Range(min=0, max=10))) == \
+            {'type': 'number', 'minimum': 0, 'maximum': 10}
+        assert json_schema(lt.Float(validate=lv.Range(min=-10, max=0))) == \
+            {'type': 'number', 'minimum': -10, 'maximum': 0}
+
+    def test_number_multiple_minimum_and_maximum(self):
+        assert json_schema(lt.Float(validate=[lv.Range(min=1, max=10),
+                                              lv.Range(min=5, max=15)])) == \
+            {'type': 'number', 'minimum': 5, 'maximum': 10}
 
     def test_integer_schema(self):
         assert json_schema(lt.Integer()) == {'type': 'integer'}
@@ -59,14 +113,37 @@ class TestJsonSchema:
     def test_integer_minimum(self):
         assert json_schema(lt.Integer(validate=lv.Range(min=2))) == \
             {'type': 'integer', 'minimum': 2}
+        assert json_schema(lt.Integer(validate=lv.Range(min=0))) == \
+            {'type': 'integer', 'minimum': 0}
+
+    def test_integer_multiple_minimum(self):
+        assert json_schema(lt.Integer(validate=[lv.Range(min=2),
+                                                lv.Range(min=5)])) == \
+            {'type': 'integer', 'minimum': 5}
 
     def test_integer_maximum(self):
         assert json_schema(lt.Integer(validate=lv.Range(max=10))) == \
+            {'type': 'integer', 'maximum': 10}
+        assert json_schema(lt.Integer(validate=lv.Range(max=0))) == \
+            {'type': 'integer', 'maximum': 0}
+
+    def test_integer_multiple_maximum(self):
+        assert json_schema(lt.Integer(validate=[lv.Range(max=10),
+                                                lv.Range(max=20)])) == \
             {'type': 'integer', 'maximum': 10}
 
     def test_integer_minimum_and_maximum(self):
         assert json_schema(lt.Integer(validate=lv.Range(min=1, max=10))) == \
             {'type': 'integer', 'minimum': 1, 'maximum': 10}
+        assert json_schema(lt.Integer(validate=lv.Range(min=0, max=10))) == \
+            {'type': 'integer', 'minimum': 0, 'maximum': 10}
+        assert json_schema(lt.Integer(validate=lv.Range(min=-10, max=0))) == \
+            {'type': 'integer', 'minimum': -10, 'maximum': 0}
+
+    def test_integer_multiple_minimum_and_maximum(self):
+        assert json_schema(lt.Integer(validate=[lv.Range(min=1, max=10),
+                                                lv.Range(min=5, max=15)])) == \
+            {'type': 'integer', 'minimum': 5, 'maximum': 10}
 
     def test_boolean_schema(self):
         assert json_schema(lt.Boolean()) == {'type': 'boolean'}
@@ -78,9 +155,23 @@ class TestJsonSchema:
     def test_list_minItems(self):
         assert json_schema(lt.List(lt.String(), validate=lv.Length(min=1))) == \
             {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1}
+        assert json_schema(lt.List(lt.String(), validate=lv.Length(min=0))) == \
+            {'type': 'array', 'items': {'type': 'string'}, 'minItems': 0}
+
+    def test_list_multiple_minItems(self):
+        assert json_schema(lt.List(lt.String(), validate=[lv.Length(min=1),
+                                                          lv.Length(min=5)])) == \
+            {'type': 'array', 'items': {'type': 'string'}, 'minItems': 5}
 
     def test_list_maxItems(self):
         assert json_schema(lt.List(lt.String(), validate=lv.Length(max=10))) == \
+            {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 10}
+        assert json_schema(lt.List(lt.String(), validate=lv.Length(max=0))) == \
+            {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 0}
+
+    def test_list_multiple_maxItems(self):
+        assert json_schema(lt.List(lt.String(), validate=[lv.Length(max=10),
+                                                          lv.Length(max=20)])) == \
             {'type': 'array', 'items': {'type': 'string'}, 'maxItems': 10}
 
     def test_list_min_and_maxItems(self):
@@ -88,6 +179,29 @@ class TestJsonSchema:
                                    validate=lv.Length(min=1, max=10))) == \
             {'type': 'array', 'items': {'type': 'string'},
              'minItems': 1, 'maxItems': 10}
+        assert json_schema(lt.List(lt.String(),
+                                   validate=lv.Length(min=0, max=10))) == \
+            {'type': 'array', 'items': {'type': 'string'},
+             'minItems': 0, 'maxItems': 10}
+        assert json_schema(lt.List(lt.String(),
+                                   validate=lv.Length(min=-10, max=0))) == \
+            {'type': 'array', 'items': {'type': 'string'},
+             'minItems': -10, 'maxItems': 0}
+
+    def test_list_multiple_min_and_maxItems(self):
+        assert json_schema(lt.List(lt.String(),
+                                   validate=[lv.Length(min=1, max=10),
+                                             lv.Length(min=5, max=15)])) == \
+            {'type': 'array', 'items': {'type': 'string'},
+             'minItems': 5, 'maxItems': 10}
+
+    def test_list_exact_items(self):
+        assert json_schema(lt.List(lt.String(), validate=lv.Length(exact=5))) == \
+            {'type': 'array', 'items': {'type': 'string'},
+             'minItems': 5, 'maxItems': 5}
+        assert json_schema(lt.List(lt.String(), validate=lv.Length(exact=0))) == \
+            {'type': 'array', 'items': {'type': 'string'},
+             'minItems': 0, 'maxItems': 0}
 
     def test_list_uniqueItems(self):
         assert json_schema(lt.List(lt.String(), validate=lv.Unique())) == \
