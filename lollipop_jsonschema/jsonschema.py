@@ -142,12 +142,23 @@ class StringEncoder(TypeEncoder):
 
         length_validators = find_validators(schema, lv.Length)
         if length_validators:
-            if any(v.min for v in length_validators) or \
-                    any(v.exact for v in length_validators):
-                js['minLength'] = max(v.exact or v.min for v in length_validators)
-            if any(v.max for v in length_validators) or \
-                    any(v.exact for v in length_validators):
-                js['maxLength'] = min(v.exact or v.max for v in length_validators)
+            exact_values = [
+                v.exact for v in length_validators if v.exact is not None
+            ]
+
+            min_values = (
+                [v.min for v in length_validators if v.min is not None]
+                + exact_values
+            )
+            if min_values:
+                js['minLength'] = max(min_values)
+
+            max_values = (
+                [v.max for v in length_validators if v.max is not None]
+                + exact_values
+            )
+            if max_values:
+                js['maxLength'] = min(max_values)
 
         regexp_validators = find_validators(schema, lv.Regexp)
         if regexp_validators:
@@ -169,10 +180,13 @@ class NumberEncoder(TypeEncoder):
 
         range_validators = find_validators(schema, lv.Range)
         if range_validators:
-            if any(v.min for v in range_validators):
-                js['minimum'] = max(v.min for v in range_validators if v.min)
-            if any(v.max for v in range_validators):
-                js['maximum'] = min(v.max for v in range_validators if v.max)
+            min_values = [v.min for v in range_validators if v.min is not None]
+            if min_values:
+                js['minimum'] = max(min_values)
+
+            max_values = [v.max for v in range_validators if v.max is not None]
+            if max_values:
+                js['maximum'] = min(max_values)
 
         return js
 
@@ -236,12 +250,23 @@ class ListEncoder(TypeEncoder):
             js['items'] = item_schema
             length_validators = find_validators(schema, lv.Length)
             if length_validators:
-                if any(v.min for v in length_validators) or \
-                        any(v.exact for v in length_validators):
-                    js['minItems'] = min(v.exact or v.min for v in length_validators)
-                if any(v.max for v in length_validators) or \
-                        any(v.exact for v in length_validators):
-                    js['maxItems'] = min(v.exact or v.max for v in length_validators)
+                exact_values = [
+                    v.exact for v in length_validators if v.exact is not None
+                ]
+
+                min_values = (
+                    [v.min for v in length_validators if v.min is not None]
+                    + exact_values
+                )
+                if min_values:
+                    js['minItems'] = max(min_values)
+
+                max_values = (
+                    [v.max for v in length_validators if v.max is not None]
+                    + exact_values
+                )
+                if max_values:
+                    js['maxItems'] = min(max_values)
 
             unique_validators = find_validators(schema, lv.Unique)
             if unique_validators and any(v.key is identity for v in unique_validators):
