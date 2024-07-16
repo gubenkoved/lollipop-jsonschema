@@ -567,6 +567,53 @@ class TestJsonSchema:
         assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
         assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
 
+    def test_duplicate_types_multiple_calls_do_not_omit_load_only(self):
+        base_type = lt.Object({
+            'load_field': lt.LoadOnly(lt.String()),
+            'dump_field': lt.DumpOnly(lt.Integer())
+        }, name='my_object')
+
+        type1 = lt.Object({'foo': base_type, 'bar': base_type})
+
+        definitions = lt.OrderedDict()
+
+        result = json_schema(type1, definitions=definitions, mode='dump')
+        assert result['properties']['foo'] == {'$ref': '#/definitions/myObjectDump'}
+        assert result['properties']['bar'] == {'$ref': '#/definitions/myObjectDump'}
+
+        assert (base_type, 'dump') in definitions
+        assert (base_type, 'load') not in definitions
+
+        assert definitions[(base_type, 'dump')].name == 'myObjectDump'
+        assert ('dump_field' in
+                definitions[(base_type, 'dump')].jsonschema['properties'])
+        assert ('load_field' not in
+                definitions[(base_type, 'dump')].jsonschema['properties'])
+
+        # Check that after load mode, the load_only field is present.
+        result = json_schema(type1, definitions=definitions, mode='load')
+        assert result['properties']['foo'] == {'$ref': '#/definitions/myObjectLoad'}
+        assert result['properties']['bar'] == {'$ref': '#/definitions/myObjectLoad'}
+
+        assert (base_type, 'dump') in definitions
+        assert (base_type, 'load') in definitions
+
+        assert definitions[(base_type, 'dump')].name == 'myObjectDump'
+        assert definitions[(base_type, 'load')].name == 'myObjectLoad'
+
+        assert ('dump_field' in
+                definitions[(base_type, 'dump')].jsonschema['properties'])
+        assert ('load_field' not in
+                definitions[(base_type, 'dump')].jsonschema['properties'])
+
+        assert ('dump_field' not in
+                definitions[(base_type, 'load')].jsonschema['properties'])
+        # Without deduplicating by load/dump mode, we would not see the load_only
+        # field.
+        assert ('load_field' in
+                definitions[(base_type, 'load')].jsonschema['properties'])
+
+
     def test_self_referencing_types(self):
         registry = lr.TypeRegistry()
         errors_type = registry.add('Errors', lt.Dict(

@@ -406,19 +406,22 @@ class ConstantEncoder(TypeEncoder):
 
 
 class SchemaUsageCounter(object):
-    def __init__(self, type_encoders):
+    def __init__(self, type_encoders, mode=None):
         self._type_encoders = type_encoders
+        self.mode = mode
         self.counts = {}
 
     def json_schema(self, schema, force_render=False):
         if isinstance(schema, lr.TypeRef):
             schema = schema.inner_type
 
-        if schema in self.counts:
-            self.counts[schema] += 1
+        schema_key = (schema, self.mode)
+
+        if schema_key in self.counts:
+            self.counts[schema_key] += 1
             return
 
-        self.counts[schema] = 1
+        self.counts[schema_key] = 1
 
         for type_encoder in self._type_encoders:
             if type_encoder.match(schema):
@@ -436,8 +439,9 @@ class JsonSchemaGenerator(object):
         if isinstance(schema, lr.TypeRef):
             schema = schema.inner_type
 
-        if schema in self.definitions and not force_render:
-            return {'$ref': '#/definitions/' + self.definitions[schema].name}
+        schema_key = (schema, self.mode)
+        if schema_key in self.definitions and not force_render:
+            return {'$ref': '#/definitions/' + self.definitions[schema_key].name}
 
         js = None
         for type_encoder in self.type_encoders:
@@ -479,16 +483,21 @@ class Encoder(object):
         definition_names = {definition.name
                             for definition in itervalues(definitions)}
 
-        counter = SchemaUsageCounter(self._encoders)
+        counter = SchemaUsageCounter(self._encoders, mode=mode)
         counter.json_schema(schema)
         counts = counter.counts
 
-        for schema1, count in iteritems(counts):
+        mode_suffix = '_' + mode if mode else ''
+
+        for schema_key, count in iteritems(counts):
             if count == 1:
                 continue
 
-            if schema1 not in definitions:
-                def_name = _sanitize_name(schema1.name) if schema1.name else 'Type'
+            schema1, mode = schema_key
+            if schema_key not in definitions:
+                def_name = schema1.name or 'Type'
+                def_name += mode_suffix
+                def_name = _sanitize_name(def_name)
 
                 if def_name in definition_names:
                     i = 1
@@ -496,16 +505,18 @@ class Encoder(object):
                         i += 1
                     def_name += str(i)
 
-                definitions[schema1] = Definition(def_name)
+                definitions[schema_key] = Definition(def_name)
                 definition_names.add(def_name)
 
         generator = JsonSchemaGenerator(self._encoders, definitions=definitions, mode=mode)
 
-        for schema1, definition in iteritems(definitions):
+        for schema_key, definition in iteritems(definitions):
             if definition.jsonschema is not None:
                 continue
 
-            definitions[schema1].jsonschema = generator.json_schema(
+            schema1, mode = schema_key
+
+            definitions[schema_key].jsonschema = generator.json_schema(
                 schema1, force_render=True,
             )
 
