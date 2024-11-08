@@ -613,7 +613,6 @@ class TestJsonSchema:
         assert ('load_field' in
                 definitions[(base_type, 'load')].jsonschema['properties'])
 
-
     def test_self_referencing_types(self):
         registry = lr.TypeRegistry()
         errors_type = registry.add('Errors', lt.Dict(
@@ -645,7 +644,8 @@ class TestJsonSchema:
         result = json_schema(lt.Object({'foo': type1, 'bar': type1}))
         assert result['definitions'] == {'MyString': json_schema(type1)}
 
-    def test_definition_name_conflict_resolving(self):
+    @pytest.mark.parametrize('mode', [None, 'load', 'dump'])
+    def test_definition_name_conflict_resolving(self, mode):
         type1 = lt.String(name='MyType')
         type2 = lt.Integer(name='MyType')
         type3 = lt.Boolean(name='MyType')
@@ -653,11 +653,13 @@ class TestJsonSchema:
         result = json_schema(lt.Object({
             'field1': type1, 'field2': type2, 'field3': type3,
             'field4': type1, 'field5': type2, 'field6': type3,
-        }))
+        }), mode=mode)
+
         refs = [
-            '#/definitions/MyType',
-            '#/definitions/MyType1',
-            '#/definitions/MyType2',
+            '#/definitions/MyType'
+            + (mode.capitalize() if mode else '')
+            + (str(i) if i else '')
+            for i in range(3)
         ]
         assert result['properties']['field1']['$ref'] in refs
         assert result['properties']['field2']['$ref'] in refs
@@ -665,7 +667,8 @@ class TestJsonSchema:
         assert len(set(result['properties'][field]['$ref']
                        for field in ['field1', 'field2', 'field3'])) == 3
 
-    def test_unnamed_types_definition_name_conflict_resolving(self):
+    @pytest.mark.parametrize('mode', [None, 'load', 'dump'])
+    def test_unnamed_types_definition_name_conflict_resolving(self, mode):
         type1 = lt.String()
         type2 = lt.Integer()
         type3 = lt.Integer()
@@ -673,11 +676,12 @@ class TestJsonSchema:
         result = json_schema(lt.Object({
             'field1': type1, 'field2': type2, 'field3': type3,
             'field4': type1, 'field5': type2, 'field6': type3,
-        }))
+        }), mode=mode)
         refs = [
-            '#/definitions/Type',
-            '#/definitions/Type1',
-            '#/definitions/Type2',
+            '#/definitions/Type'
+            + (mode.capitalize() if mode else '')
+            + (str(i) if i else '')
+            for i in range(3)
         ]
         assert result['properties']['field1']['$ref'] in refs
         assert result['properties']['field2']['$ref'] in refs
