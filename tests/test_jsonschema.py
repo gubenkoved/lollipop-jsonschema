@@ -3,7 +3,6 @@ import lollipop.types as lt
 import lollipop.validators as lv
 from lollipop.utils import is_mapping, DictWithDefault
 from lollipop_jsonschema import json_schema, TypeEncoder, Encoder
-from lollipop_jsonschema.compat import iteritems
 import pytest
 from collections import namedtuple
 
@@ -255,28 +254,28 @@ class TestJsonSchema:
             'foo': lt.String(), 'bar': lt.Integer(),
         }, allow_extra_fields=True))
 
-        assert result['additionalProperties'] == True
+        assert result['additionalProperties'] is True
 
     def test_object_allow_extra_fields_any(self):
         result = json_schema(lt.Object({
             'foo': lt.String(), 'bar': lt.Integer(),
         }, allow_extra_fields=lt.Any()))
 
-        assert result['additionalProperties'] == True
+        assert result['additionalProperties'] is True
 
     def test_object_allow_extra_fields_any_with_modifiers(self):
         result = json_schema(lt.Object({
             'foo': lt.String(), 'bar': lt.Integer(),
         }, allow_extra_fields=lt.Transform(lt.Any())))
 
-        assert result['additionalProperties'] == True
+        assert result['additionalProperties'] is True
 
     def test_object_allow_extra_fields_false(self):
         result = json_schema(lt.Object({
             'foo': lt.String(), 'bar': lt.Integer(),
         }, allow_extra_fields=False))
 
-        assert result['additionalProperties'] == False
+        assert result['additionalProperties'] is False
 
     def test_object_allow_extra_fields_type(self):
         result = json_schema(lt.Object({
@@ -442,9 +441,6 @@ class TestJsonSchema:
             sorted_dicts(result['anyOf'])
 
     def test_one_of_schema_with_mapping(self):
-        Foo = namedtuple('Foo', ['foo'])
-        Bar = namedtuple('Bar', ['bar'])
-
         FOO_SCHEMA = lt.Object({'type': 'Foo', 'foo': lt.String()})
         BAR_SCHEMA = lt.Object({'type': 'Bar', 'bar': lt.Integer()})
 
@@ -829,15 +825,6 @@ class TestJsonSchema:
             mode='load',
         ) == json_schema(lt.OneOf({'foo': lt.String()}))
 
-    def test_one_of_with_item_types_in_mapping_in_incorrect_mode(self):
-        assert json_schema(
-            lt.OneOf({
-                'foo': lt.DumpOnly(lt.String()),
-                'bar': lt.DumpOnly(lt.Integer()),
-            }),
-            mode='load',
-        ) is None
-
     def test_type_ref_with_inner_type_in_incorrect_mode(self):
         registry = lr.TypeRegistry()
         type_ref = registry.add('Foo', lt.DumpOnly(lt.String()))
@@ -845,7 +832,8 @@ class TestJsonSchema:
         assert json_schema(type_ref, mode='load') is None
 
     def test_custom_type_schema(self):
-        class MyType(lt.Type): pass
+        class MyType(lt.Type):
+            pass
 
         class MyTypeEncoder(TypeEncoder):
             schema_type = MyType

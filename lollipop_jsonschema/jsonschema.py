@@ -25,7 +25,7 @@ import lollipop.types as lt
 import lollipop.validators as lv
 from lollipop.utils import identity, is_mapping
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from .compat import itervalues, iteritems
 import re
 
@@ -523,7 +523,7 @@ class Encoder(object):
         js = generator.json_schema(schema)
         if is_top_level_schema and definitions:
             js['definitions'] = {definition.name: definition.jsonschema
-                                for definition in itervalues(definitions)}
+                                 for definition in itervalues(definitions)}
 
         return js
 
