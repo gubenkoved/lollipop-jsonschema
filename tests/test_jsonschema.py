@@ -567,6 +567,52 @@ class TestJsonSchema:
         assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
         assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
 
+    def test_duplicate_types_multiple_calls_do_not_omit_load_only(self):
+        base_type = lt.Object({
+            'load_field': lt.LoadOnly(lt.String()),
+            'dump_field': lt.DumpOnly(lt.Integer())
+        }, name='my_object')
+
+        type1 = lt.Object({'foo': base_type, 'bar': base_type})
+
+        definitions = lt.OrderedDict()
+
+        result = json_schema(type1, definitions=definitions, mode='dump')
+        assert result['properties']['foo'] == {'$ref': '#/definitions/myObjectDump'}
+        assert result['properties']['bar'] == {'$ref': '#/definitions/myObjectDump'}
+
+        assert (base_type, 'dump') in definitions
+        assert (base_type, 'load') not in definitions
+
+        assert definitions[(base_type, 'dump')].name == 'myObjectDump'
+        assert ('dump_field' in
+                definitions[(base_type, 'dump')].jsonschema['properties'])
+        assert ('load_field' not in
+                definitions[(base_type, 'dump')].jsonschema['properties'])
+
+        # Check that after load mode, the load_only field is present.
+        result = json_schema(type1, definitions=definitions, mode='load')
+        assert result['properties']['foo'] == {'$ref': '#/definitions/myObjectLoad'}
+        assert result['properties']['bar'] == {'$ref': '#/definitions/myObjectLoad'}
+
+        assert (base_type, 'dump') in definitions
+        assert (base_type, 'load') in definitions
+
+        assert definitions[(base_type, 'dump')].name == 'myObjectDump'
+        assert definitions[(base_type, 'load')].name == 'myObjectLoad'
+
+        assert ('dump_field' in
+                definitions[(base_type, 'dump')].jsonschema['properties'])
+        assert ('load_field' not in
+                definitions[(base_type, 'dump')].jsonschema['properties'])
+
+        assert ('dump_field' not in
+                definitions[(base_type, 'load')].jsonschema['properties'])
+        # Without deduplicating by load/dump mode, we would not see the load_only
+        # field.
+        assert ('load_field' in
+                definitions[(base_type, 'load')].jsonschema['properties'])
+
     def test_self_referencing_types(self):
         registry = lr.TypeRegistry()
         errors_type = registry.add('Errors', lt.Dict(
@@ -598,7 +644,8 @@ class TestJsonSchema:
         result = json_schema(lt.Object({'foo': type1, 'bar': type1}))
         assert result['definitions'] == {'MyString': json_schema(type1)}
 
-    def test_definition_name_conflict_resolving(self):
+    @pytest.mark.parametrize('mode', [None, 'load', 'dump'])
+    def test_definition_name_conflict_resolving(self, mode):
         type1 = lt.String(name='MyType')
         type2 = lt.Integer(name='MyType')
         type3 = lt.Boolean(name='MyType')
@@ -606,11 +653,13 @@ class TestJsonSchema:
         result = json_schema(lt.Object({
             'field1': type1, 'field2': type2, 'field3': type3,
             'field4': type1, 'field5': type2, 'field6': type3,
-        }))
+        }), mode=mode)
+
         refs = [
-            '#/definitions/MyType',
-            '#/definitions/MyType1',
-            '#/definitions/MyType2',
+            '#/definitions/MyType'
+            + (mode.capitalize() if mode else '')
+            + (str(i) if i else '')
+            for i in range(3)
         ]
         assert result['properties']['field1']['$ref'] in refs
         assert result['properties']['field2']['$ref'] in refs
@@ -618,7 +667,8 @@ class TestJsonSchema:
         assert len(set(result['properties'][field]['$ref']
                        for field in ['field1', 'field2', 'field3'])) == 3
 
-    def test_unnamed_types_definition_name_conflict_resolving(self):
+    @pytest.mark.parametrize('mode', [None, 'load', 'dump'])
+    def test_unnamed_types_definition_name_conflict_resolving(self, mode):
         type1 = lt.String()
         type2 = lt.Integer()
         type3 = lt.Integer()
@@ -626,11 +676,12 @@ class TestJsonSchema:
         result = json_schema(lt.Object({
             'field1': type1, 'field2': type2, 'field3': type3,
             'field4': type1, 'field5': type2, 'field6': type3,
-        }))
+        }), mode=mode)
         refs = [
-            '#/definitions/Type',
-            '#/definitions/Type1',
-            '#/definitions/Type2',
+            '#/definitions/Type'
+            + (mode.capitalize() if mode else '')
+            + (str(i) if i else '')
+            for i in range(3)
         ]
         assert result['properties']['field1']['$ref'] in refs
         assert result['properties']['field2']['$ref'] in refs
