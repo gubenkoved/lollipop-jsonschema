@@ -223,7 +223,7 @@ class TestJsonSchema:
             'foo': {'type': 'string'},
             'bar': {'type': 'integer'},
         }
-        assert sorted(result['required']) == sorted(['foo', 'bar'])
+        assert result['required'] == sorted(['foo', 'bar'])
 
     def test_object_optional_fields(self):
         result = json_schema(lt.Object({'foo': lt.String(),
@@ -300,7 +300,7 @@ class TestJsonSchema:
             'foo': {'type': 'string'},
             'bar': {'type': 'integer'},
         }
-        assert sorted(result['required']) == sorted(['foo', 'bar'])
+        assert result['required'] == sorted(['foo', 'bar'])
 
     def test_variadic_fields_dict_schema(self):
         result = json_schema(lt.Dict(lt.Integer()))
@@ -339,12 +339,12 @@ class TestJsonSchema:
         jschema = json_schema(lt.String(validate=lv.AnyOf(['foo', 'bar', 'baz'])))
         assert len(jschema) == 2
         assert jschema['type'] == 'string'
-        assert sorted(jschema['enum']) == sorted(['foo', 'bar', 'baz'])
+        assert jschema['enum'] == sorted(['foo', 'bar', 'baz'])
 
         jschema = json_schema(lt.Integer(validate=lv.AnyOf([1, 2, 3])))
         assert len(jschema) == 2
         assert jschema['type'] == 'integer'
-        assert sorted(jschema['enum']) == sorted([1, 2, 3])
+        assert jschema['enum'] == sorted([1, 2, 3])
 
     def test_type_with_any_of_validator_values_are_serialized(self):
         MyType = namedtuple('MyType', ['foo', 'bar'])
@@ -355,8 +355,8 @@ class TestJsonSchema:
         )
         jschema = json_schema(MY_TYPE)
 
-        assert sorted(jschema['enum'], key=lambda d: sorted(d.items())) == \
-            [{'foo': 'hello', 'bar': 1}, {'foo': 'goodbye', 'bar': 2}]
+        assert jschema['enum'] == \
+            [{'foo': 'goodbye', 'bar': 2}, {'foo': 'hello', 'bar': 1}]
 
     def test_type_with_multiple_any_of_validators(self):
         jschema = json_schema(
@@ -368,18 +368,18 @@ class TestJsonSchema:
 
         assert len(jschema) == 2
         assert jschema['type'] == 'string'
-        assert sorted(jschema['enum']) == sorted(['bar', 'baz'])
+        assert jschema['enum'] == sorted(['bar', 'baz'])
 
     def test_type_with_none_of_validator_is_dumped_as_not_enum(self):
         jschema = json_schema(lt.String(validate=lv.NoneOf(['foo', 'bar', 'baz'])))
         assert 'not' in jschema
         assert len(jschema['not']) == 1
-        assert sorted(jschema['not']['enum']) == sorted(['foo', 'bar', 'baz'])
+        assert jschema['not']['enum'] == sorted(['foo', 'bar', 'baz'])
 
         jschema = json_schema(lt.Integer(validate=lv.NoneOf([1, 2, 3])))
         assert 'not' in jschema
         assert len(jschema['not']) == 1
-        assert sorted(jschema['not']['enum']) == sorted([1, 2, 3])
+        assert jschema['not']['enum'] == sorted([1, 2, 3])
 
     def test_type_with_none_of_validator_values_are_serialized(self):
         MyType = namedtuple('MyType', ['foo', 'bar'])
@@ -390,8 +390,8 @@ class TestJsonSchema:
         )
         jschema = json_schema(MY_TYPE)
 
-        assert sorted(jschema['not']['enum'], key=lambda d: sorted(d.items())) == \
-            [{'foo': 'hello', 'bar': 1}, {'foo': 'goodbye', 'bar': 2}]
+        assert jschema['not']['enum'] == \
+            [{'foo': 'goodbye', 'bar': 2}, {'foo': 'hello', 'bar': 1}]
 
     def test_type_with_multiple_none_of_validators(self):
         jschema = json_schema(
@@ -401,7 +401,7 @@ class TestJsonSchema:
             ])
         )
 
-        assert sorted(jschema['not']['enum']) == sorted(['foo', 'bar', 'baz', 'bam'])
+        assert jschema['not']['enum'] == sorted(['foo', 'bar', 'baz', 'bam'])
 
     def test_constant(self):
         assert json_schema(lt.Constant('foo')) == {'const': 'foo'}

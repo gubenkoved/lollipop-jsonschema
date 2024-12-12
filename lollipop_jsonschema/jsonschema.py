@@ -83,7 +83,7 @@ class TypeEncoder(object):
             if not choices:
                 raise ValueError('AnyOf constraints choices does not allow any values')
 
-            js['enum'] = list(schema.dump(choice) for choice in choices)
+            js['enum'] = list(schema.dump(choice) for choice in sorted(choices))
 
         none_of_validators = find_validators(schema, lv.NoneOf)
         if none_of_validators:
@@ -92,7 +92,8 @@ class TypeEncoder(object):
                 choices = choices.union(set(validator.values))
 
             if choices:
-                js['not'] = {'enum': list(schema.dump(choice) for choice in choices)}
+                js['not'] = {'enum': list(
+                    schema.dump(choice) for choice in sorted(choices))}
 
         return js
 
@@ -320,7 +321,7 @@ class ObjectEncoder(TypeEncoder):
 
             required = [
                 field_name
-                for field_name, field in iteritems(schema.fields)
+                for field_name, field in sorted(iteritems(schema.fields))
                 if not is_optional(field.field_type) and field_name in js['properties']
             ]
             if required:
@@ -360,7 +361,7 @@ class DictEncoder(TypeEncoder):
             js['properties'] = properties
         required = [
             k
-            for k, v in iteritems(schema.value_types)
+            for k, v in sorted(iteritems(schema.value_types))
             if not is_optional(v) and k in properties
         ]
         if required:
