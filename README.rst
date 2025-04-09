@@ -15,7 +15,7 @@ lollipop-jsonschema
     :alt: PyPI
 
 Library to convert `Lollipop schema <https://github.com/maximkulkin/lollipop>`_
-to `JSON schema <http://json-schema.org>`_.
+to `JSON schema <http://json-schema.org>`_ in a format compliant with OpenAPI 3.1.0.
 
 Example
 =======

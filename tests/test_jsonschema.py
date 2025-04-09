@@ -13,6 +13,11 @@ def sorted_dicts(items):
     return sorted(items, key=normalize)
 
 
+NULL_TYPE = {
+    'type': 'null',
+}
+
+
 class TestJsonSchema:
     def test_string_schema(self):
         assert json_schema(lt.String()) == {'type': 'string'}
@@ -208,11 +213,17 @@ class TestJsonSchema:
 
     def test_tuple_schema(self):
         assert json_schema(lt.Tuple([lt.String(), lt.Integer(), lt.Boolean()])) == \
-            {'type': 'array', 'items': [
-                {'type': 'string'},
-                {'type': 'integer'},
-                {'type': 'boolean'},
-            ]}
+            {
+                'type': 'array',
+                 'prefixItems': [
+                    {'type': 'string'},
+                    {'type': 'integer'},
+                    {'type': 'boolean'},
+                ],
+                'items': False,
+                'minItems': 3,
+                'maxItems': 3,
+            }
 
     def test_object_schema(self):
         result = json_schema(lt.Object({'foo': lt.String(), 'bar': lt.Integer()}))
@@ -408,14 +419,29 @@ class TestJsonSchema:
         assert json_schema(lt.Constant(123)) == {'const': 123}
 
     def test_optional_schema_is_its_inner_type_schema_with_default_annotation(self):
-        assert json_schema(lt.Optional(lt.String())) == \
-            dict(json_schema(lt.String()), default=None)
-        assert json_schema(lt.Optional(lt.Integer())) == \
-            dict(json_schema(lt.Integer()), default=None)
+        assert json_schema(lt.Optional(lt.String())) == {
+            'anyOf': [
+                json_schema(lt.String()),
+                NULL_TYPE,
+            ],
+            'default': None,
+        }
+        assert json_schema(lt.Optional(lt.Integer())) == {
+            'anyOf': [
+                json_schema(lt.Integer()),
+                NULL_TYPE,
+            ],
+            'default': None
+        }
 
     def test_optional_load_default_is_used_as_default(self):
-        assert json_schema(lt.Optional(lt.String(), load_default='foo')) \
-            == {'type': 'string', 'default': 'foo'}
+        assert json_schema(lt.Optional(lt.String(), load_default='foo')) == {
+            'anyOf': [
+                json_schema(lt.String()),
+                NULL_TYPE,
+            ],
+            'default': 'foo',
+        }
 
     def test_optional_load_default_value_is_serialized(self):
         MyType = namedtuple('MyType', ['foo', 'bar'])
@@ -427,8 +453,14 @@ class TestJsonSchema:
         assert result['default'] == {'foo': 'hello', 'bar': 123}
 
     def test_optional_load_default_is_skipped_if_MISSING(self):
-        assert json_schema(lt.Optional(lt.String(), load_default=lt.MISSING)) \
-            == {'type': 'string'}
+        assert json_schema(lt.Optional(lt.String(), load_default=lt.MISSING)) == {
+            'anyOf': [
+                {
+                    'type': 'string',
+                },
+                NULL_TYPE,
+            ]
+       }
 
     def test_one_of_schema_with_sequence(self):
         t1 = lt.String()
@@ -461,74 +493,88 @@ class TestJsonSchema:
         type1 = lt.String(name='MyString')
         result = json_schema(lt.Object({'foo': type1, 'bar': type1}))
 
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
-        assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
+        assert result['properties']['bar'] == {'$ref': '#/components/schemas/MyString'}
 
     def test_duplicate_types_in_objects_extra_fields_are_extracted_to_definitions(self):
         type1 = lt.String(name='MyString')
         result = json_schema(lt.Object({'foo': type1}, allow_extra_fields=type1))
 
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
-        assert result['additionalProperties'] == {'$ref': '#/definitions/MyString'}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
+        assert result['additionalProperties'] == {'$ref': '#/components/schemas/MyString'}
 
     def test_duplicate_types_in_lists_are_extracted_to_definitions(self):
         type1 = lt.String(name='MyString')
         result = json_schema(lt.Object({'foo': type1,
                                         'bar': lt.List(type1)}))
 
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
         assert result['properties']['bar']['items'] == \
-            {'$ref': '#/definitions/MyString'}
+            {'$ref': '#/components/schemas/MyString'}
 
     def test_duplicate_types_in_dicts_are_extracted_to_definitions(self):
         type1 = lt.String(name='MyString')
         result = json_schema(lt.Object({'foo': type1,
                                         'bar': lt.Dict({'baz': type1})}))
 
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
         assert result['properties']['bar']['properties']['baz'] == \
-            {'$ref': '#/definitions/MyString'}
+            {'$ref': '#/components/schemas/MyString'}
 
     def test_duplicate_types_in_dicts_default_are_extracted_to_definitions(self):
         type1 = lt.String(name='MyString')
         result = json_schema(lt.Object({'foo': type1,
                                         'bar': lt.Dict(type1)}))
 
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
         assert result['properties']['bar']['additionalProperties'] == \
-            {'$ref': '#/definitions/MyString'}
+            {'$ref': '#/components/schemas/MyString'}
 
     def test_duplicate_types_in_one_of_are_extracted_to_definitions(self):
         type1 = lt.String(name='MyString')
         result = json_schema(lt.Object({'foo': type1,
                                         'bar': lt.OneOf([type1, lt.Integer()])}))
 
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
         assert result['properties']['bar']['anyOf'][0] == \
-            {'$ref': '#/definitions/MyString'}
+            {'$ref': '#/components/schemas/MyString'}
 
     def test_duplicate_types_in_optional_are_extracted_to_definitions(self):
         type1 = lt.String(name='MyString')
         result = json_schema(lt.Object({'foo': type1,
                                         'bar': lt.Optional(type1)}))
 
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
-        assert result['properties']['bar'] == \
-            {'$ref': '#/definitions/MyString', 'default': None}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
+        assert result['properties']['bar'] == {
+            'anyOf': [
+                {
+                    '$ref': '#/components/schemas/MyString',
+                },
+                NULL_TYPE,
+            ],
+            'default': None,
+        }
         assert 'bar' not in result['required']
 
     def test_type_references(self):
@@ -546,10 +592,11 @@ class TestJsonSchema:
         type1_ref = registry.add('AString', type1)
 
         result = json_schema(lt.Object({'foo': type1_ref, 'bar': type1_ref}))
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
-        assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
+        assert result['properties']['bar'] == {'$ref': '#/components/schemas/MyString'}
 
     def test_duplicate_type_and_type_references_are_extracted_to_definitions(self):
         registry = lr.TypeRegistry()
@@ -558,10 +605,11 @@ class TestJsonSchema:
         type1_ref = registry.add('AString', type1)
 
         result = json_schema(lt.Object({'foo': type1, 'bar': type1_ref}))
-        assert 'definitions' in result
-        assert result['definitions'] == {'MyString': json_schema(type1)}
-        assert result['properties']['foo'] == {'$ref': '#/definitions/MyString'}
-        assert result['properties']['bar'] == {'$ref': '#/definitions/MyString'}
+        assert 'components' in result
+        assert 'schemas' in result['components']
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/MyString'}
+        assert result['properties']['bar'] == {'$ref': '#/components/schemas/MyString'}
 
     def test_duplicate_types_multiple_calls_do_not_omit_load_only(self):
         base_type = lt.Object({
@@ -574,8 +622,8 @@ class TestJsonSchema:
         definitions = lt.OrderedDict()
 
         result = json_schema(type1, definitions=definitions, mode='dump')
-        assert result['properties']['foo'] == {'$ref': '#/definitions/myObjectDump'}
-        assert result['properties']['bar'] == {'$ref': '#/definitions/myObjectDump'}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/myObjectDump'}
+        assert result['properties']['bar'] == {'$ref': '#/components/schemas/myObjectDump'}
 
         assert (base_type, 'dump') in definitions
         assert (base_type, 'load') not in definitions
@@ -588,8 +636,8 @@ class TestJsonSchema:
 
         # Check that after load mode, the load_only field is present.
         result = json_schema(type1, definitions=definitions, mode='load')
-        assert result['properties']['foo'] == {'$ref': '#/definitions/myObjectLoad'}
-        assert result['properties']['bar'] == {'$ref': '#/definitions/myObjectLoad'}
+        assert result['properties']['foo'] == {'$ref': '#/components/schemas/myObjectLoad'}
+        assert result['properties']['bar'] == {'$ref': '#/components/schemas/myObjectLoad'}
 
         assert (base_type, 'dump') in definitions
         assert (base_type, 'load') in definitions
@@ -618,27 +666,27 @@ class TestJsonSchema:
 
         result = json_schema(errors_type)
 
-        assert sorted(result.keys()) == sorted(['definitions', '$ref'])
+        assert sorted(result.keys()) == sorted(['components', '$ref'])
 
-        assert 'Errors' in result['definitions']
-        errorsDef = result['definitions']['Errors']
+        assert 'Errors' in result['components']['schemas']
+        errorsDef = result['components']['schemas']['Errors']
         assert errorsDef['title'] == 'Errors'
         assert errorsDef['type'] == 'object'
         assert errorsDef['additionalProperties'] == {
             'anyOf': [
                 json_schema(lt.String()),
                 json_schema(lt.List(lt.String())),
-                {'$ref': '#/definitions/Errors'},
+                {'$ref': '#/components/schemas/Errors'},
             ]
         }
 
-        assert result['$ref'] == '#/definitions/Errors'
+        assert result['$ref'] == '#/components/schemas/Errors'
 
     def test_definition_name_sanitization(self):
         type1 = lt.String(name='My string!')
 
         result = json_schema(lt.Object({'foo': type1, 'bar': type1}))
-        assert result['definitions'] == {'MyString': json_schema(type1)}
+        assert result['components']['schemas'] == {'MyString': json_schema(type1)}
 
     @pytest.mark.parametrize('mode', [None, 'load', 'dump'])
     def test_definition_name_conflict_resolving(self, mode):
@@ -652,7 +700,7 @@ class TestJsonSchema:
         }), mode=mode)
 
         refs = [
-            '#/definitions/MyType'
+            '#/components/schemas/MyType'
             + (mode.capitalize() if mode else '')
             + (str(i) if i else '')
             for i in range(3)
@@ -674,7 +722,7 @@ class TestJsonSchema:
             'field4': type1, 'field5': type2, 'field6': type3,
         }), mode=mode)
         refs = [
-            '#/definitions/Type'
+            '#/components/schemas/Type'
             + (mode.capitalize() if mode else '')
             + (str(i) if i else '')
             for i in range(3)
